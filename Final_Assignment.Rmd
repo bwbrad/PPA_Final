@@ -1,0 +1,459 @@
+---
+title: "Final"
+author: "Frances Murray, Bailey Bradford, Jonathan Zisk"
+date: "2024-04-26"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r setup_packages, results='hide', warning = FALSE, message = FALSE}
+library(tidyverse)
+library(tidycensus)
+library(sf)
+```
+
+
+```{r Get ACS 2012 data, results='hide'}
+Nash_census12 <- 
+  get_acs(geography = "tract", 
+          variables = c("B25026_001E", #total pop
+                        "B19013_001E", #med hh inc
+                        "B06012_002E", #poverty
+                        "B19058_002E", #with public assistance income or SNAP
+                       
+                        #housing
+                        "B25058_001E", #med rent
+                        "B25077_001E", #med home val
+                        "B25003_002E", #owner occupied
+                        "B25003_003E", #renter occupied
+                        "B25004_001E", #vacant hu
+                        "B25024_001E", #total hu
+                        "B25035_001E", #med year structure built
+                       
+                        #race
+                        "B03002_004E", #black pop
+                        "B03002_012E", #hisp / latino pop
+                        "B03002_003E", #white pop
+                        "B03002_006E", #asian pop
+                        "B03002_005E", #native american
+                        
+                        #education
+                        "B06009_005E", #bach degree
+                        "B06009_003E", #high school grad or equivilant
+                        "B06009_002E", #less than hs deg
+                        "B06009_006E", #grad or pro degree
+                        
+                        #means of transport to work
+                        "B08006_003E", #drove alone
+                        "B08006_004E", #carpooled
+                        "B08006_008E", #public transit
+                        "B08006_014E", #bike
+                        "B08006_015E", #walk
+                        "B08006_017E", #work from home
+                        
+                        #citizenship
+                        "B05001_002E", #US citizen born in US
+                        "B05001_006E", #not US citizen
+                        
+                        #employment
+                        "B23025_004E", #employed pop 16 & over
+                        "B23025_005E", #unemployed pop 16 & over
+                        "B08126_002E", #agriculture
+                        "B08126_003E", #construction
+                        "B08126_004E", #manufacturing
+                        "B08126_005E", #wholesale trade
+                        "B08126_006E", #retail
+                        "B08126_007E", #transport, warehouse, utilities
+                        "B08126_008E", #information
+                        "B08126_009E", #finance, insurance
+                        "B08126_010E", #pro, sci, management
+                        "B08126_011E", #education & health care
+                        "B08126_012E", #arts, entertainment, rec & hospitality
+                        "B08126_014E", #public admin
+                        "B08126_015E", #armed forces
+                        "B08126_013E"), #other
+                        
+          year=2012, state=47, county=037, 
+          geometry=TRUE, output="wide") %>%
+  st_transform('ESRI:102271') %>%
+  rename(TotalPop = B25026_001E, 
+         MedHHInc = B19013_001E, 
+         MedRent = B25058_001E,
+         MedHomeVal = B25077_001E,
+         VacHU = B25004_001E,
+         Poverty = B06012_002E,
+         PubSNAP = B19058_002E,
+         OwnerOcc = B25003_002E,
+         RenterOcc = B25003_003E,
+         TotalHU = B25024_001E,
+         MedHUBuilt = B25035_001E,
+         BlackPop = B03002_004E,
+         HispLatPop = B03002_012E,
+         WhitePop = B03002_003E,
+         AsianPop = B03002_006E,
+         NatAmPop = B03002_005E,
+         Bach_deg = B06009_005E,
+         No_HS_Deg = B06009_002E,
+         HS_Grad = B06009_003E,
+         Grad_deg = B06009_006E,
+         Drive_commute = B08006_003E,
+         Carpool_commute = B08006_004E,
+         PubTrans_commute = B08006_008E,
+         Bike_commute = B08006_014E,
+         Walk_commute = B08006_015E,
+         WFA_commute = B08006_017E,
+         US_cit = B05001_002E,
+         NotUS_cit = B05001_006E,
+         EmplPop = B23025_004E,
+         UnemplPop = B23025_005E,
+         Occ_Agri = B08126_002E,
+         Occ_Const = B08126_003E,
+         Occ_Manuf = B08126_004E,
+         Occ_Wholesale = B08126_005E,
+         Occ_Retail = B08126_006E,
+         Occ_Transport = B08126_007E,
+         Occ_Info = B08126_008E,
+         Occ_FinIns = B08126_009E,
+         Occ_Prof_sci_mangr = B08126_010E,
+         Occ_Edu_health = B08126_011E,
+         Occ_Art_Hosp = B08126_012E,
+         Occ_PubAdmin = B08126_014E,
+         Occ_ArmedForce = B08126_015E,
+         Occ_other = B08126_013E)%>%
+  dplyr::select(-NAME, -ends_with("M"))
+options(tigris_use_cache = TRUE)
+
+Chatt_census12 <- 
+  get_acs(geography = "tract", 
+          variables = c("B25026_001E", #total pop
+                        "B19013_001E", #med hh inc
+                        "B06012_002E", #poverty
+                        "B19058_002E", #with public assistance income or SNAP
+                       
+                        #housing
+                        "B25058_001E", #med rent
+                        "B25077_001E", #med home val
+                        "B25003_002E", #owner occupied
+                        "B25003_003E", #renter occupied
+                        "B25004_001E", #vacant hu
+                        "B25024_001E", #total hu
+                        "B25035_001E", #med year structure built
+                       
+                        #race
+                        "B03002_004E", #black pop
+                        "B03002_012E", #hisp / latino pop
+                        "B03002_003E", #white pop
+                        "B03002_006E", #asian pop
+                        "B03002_005E", #native american
+                        
+                        #education
+                        "B06009_005E", #bach degree
+                        "B06009_003E", #high school grad or equivilant
+                        "B06009_002E", #less than hs deg
+                        "B06009_006E", #grad or pro degree
+                        
+                        #means of transport to work
+                        "B08006_003E", #drove alone
+                        "B08006_004E", #carpooled
+                        "B08006_008E", #public transit
+                        "B08006_014E", #bike
+                        "B08006_015E", #walk
+                        "B08006_017E", #work from home
+                        
+                        #citizenship
+                        "B05001_002E", #US citizen born in US
+                        "B05001_006E", #not US citizen
+                        
+                        #employment
+                        "B23025_004E", #employed pop 16 & over
+                        "B23025_005E", #unemployed pop 16 & over
+                        "B08126_002E", #agriculture
+                        "B08126_003E", #construction
+                        "B08126_004E", #manufacturing
+                        "B08126_005E", #wholesale trade
+                        "B08126_006E", #retail
+                        "B08126_007E", #transport, warehouse, utilities
+                        "B08126_008E", #information
+                        "B08126_009E", #finance, insurance
+                        "B08126_010E", #pro, sci, management
+                        "B08126_011E", #education & health care
+                        "B08126_012E", #arts, entertainment, rec & hospitality
+                        "B08126_014E", #public admin
+                        "B08126_015E", #armed forces
+                        "B08126_013E"), #other
+                        
+          year=2012, state=47, county=065, 
+          geometry=TRUE, output="wide") %>%
+  st_transform('ESRI:102271') %>%
+  rename(TotalPop = B25026_001E, 
+         MedHHInc = B19013_001E, 
+         MedRent = B25058_001E,
+         MedHomeVal = B25077_001E,
+         VacHU = B25004_001E,
+         Poverty = B06012_002E,
+         PubSNAP = B19058_002E,
+         OwnerOcc = B25003_002E,
+         RenterOcc = B25003_003E,
+         TotalHU = B25024_001E,
+         MedHUBuilt = B25035_001E,
+         BlackPop = B03002_004E,
+         HispLatPop = B03002_012E,
+         WhitePop = B03002_003E,
+         AsianPop = B03002_006E,
+         NatAmPop = B03002_005E,
+         Bach_deg = B06009_005E,
+         No_HS_Deg = B06009_002E,
+         HS_Grad = B06009_003E,
+         Grad_deg = B06009_006E,
+         Drive_commute = B08006_003E,
+         Carpool_commute = B08006_004E,
+         PubTrans_commute = B08006_008E,
+         Bike_commute = B08006_014E,
+         Walk_commute = B08006_015E,
+         WFA_commute = B08006_017E,
+         US_cit = B05001_002E,
+         NotUS_cit = B05001_006E,
+         EmplPop = B23025_004E,
+         UnemplPop = B23025_005E,
+         Occ_Agri = B08126_002E,
+         Occ_Const = B08126_003E,
+         Occ_Manuf = B08126_004E,
+         Occ_Wholesale = B08126_005E,
+         Occ_Retail = B08126_006E,
+         Occ_Transport = B08126_007E,
+         Occ_Info = B08126_008E,
+         Occ_FinIns = B08126_009E,
+         Occ_Prof_sci_mangr = B08126_010E,
+         Occ_Edu_health = B08126_011E,
+         Occ_Art_Hosp = B08126_012E,
+         Occ_PubAdmin = B08126_014E,
+         Occ_ArmedForce = B08126_015E,
+         Occ_other = B08126_013E)%>%
+  dplyr::select(-NAME, -ends_with("M"))
+options(tigris_use_cache = TRUE)
+```
+
+```{r Get ACS 2019 data, results='hide'}
+Nash_census19 <- 
+  get_acs(geography = "tract", 
+          variables = c("B25026_001E", #total pop
+                        "B19013_001E", #med hh inc
+                        "B06012_002E", #poverty
+                        "B19058_002E", #with public assistance income or SNAP
+                       
+                        #housing
+                        "B25058_001E", #med rent
+                        "B25077_001E", #med home val
+                        "B25003_002E", #owner occupied
+                        "B25003_003E", #renter occupied
+                        "B25004_001E", #vacant hu
+                        "B25024_001E", #total hu
+                        "B25035_001E", #med year structure built
+                       
+                        #race
+                        "B03002_004E", #black pop
+                        "B03002_012E", #hisp / latino pop
+                        "B03002_003E", #white pop
+                        "B03002_006E", #asian pop
+                        "B03002_005E", #native american
+                        
+                        #education
+                        "B06009_005E", #bach degree
+                        "B06009_003E", #high school grad or equivilant
+                        "B06009_002E", #less than hs deg
+                        "B06009_006E", #grad or pro degree
+                        
+                        #means of transport to work
+                        "B08006_003E", #drove alone
+                        "B08006_004E", #carpooled
+                        "B08006_008E", #public transit
+                        "B08006_014E", #bike
+                        "B08006_015E", #walk
+                        "B08006_017E", #work from home
+                        
+                        #citizenship
+                        "B05001_002E", #US citizen born in US
+                        "B05001_006E", #not US citizen
+                        
+                        #employment
+                        "B23025_004E", #employed pop 16 & over
+                        "B23025_005E", #unemployed pop 16 & over
+                        "B08126_002E", #agriculture
+                        "B08126_003E", #construction
+                        "B08126_004E", #manufacturing
+                        "B08126_005E", #wholesale trade
+                        "B08126_006E", #retail
+                        "B08126_007E", #transport, warehouse, utilities
+                        "B08126_008E", #information
+                        "B08126_009E", #finance, insurance
+                        "B08126_010E", #pro, sci, management
+                        "B08126_011E", #education & health care
+                        "B08126_012E", #arts, entertainment, rec & hospitality
+                        "B08126_014E", #public admin
+                        "B08126_015E", #armed forces
+                        "B08126_013E"), #other
+                        
+          year=2019, state=47, county=037, 
+          geometry=TRUE, output="wide") %>%
+  st_transform('ESRI:102271') %>%
+  rename(TotalPop = B25026_001E, 
+         MedHHInc = B19013_001E, 
+         MedRent = B25058_001E,
+         MedHomeVal = B25077_001E,
+         VacHU = B25004_001E,
+         Poverty = B06012_002E,
+         PubSNAP = B19058_002E,
+         OwnerOcc = B25003_002E,
+         RenterOcc = B25003_003E,
+         TotalHU = B25024_001E,
+         MedHUBuilt = B25035_001E,
+         BlackPop = B03002_004E,
+         HispLatPop = B03002_012E,
+         WhitePop = B03002_003E,
+         AsianPop = B03002_006E,
+         NatAmPop = B03002_005E,
+         Bach_deg = B06009_005E,
+         No_HS_Deg = B06009_002E,
+         HS_Grad = B06009_003E,
+         Grad_deg = B06009_006E,
+         Drive_commute = B08006_003E,
+         Carpool_commute = B08006_004E,
+         PubTrans_commute = B08006_008E,
+         Bike_commute = B08006_014E,
+         Walk_commute = B08006_015E,
+         WFA_commute = B08006_017E,
+         US_cit = B05001_002E,
+         NotUS_cit = B05001_006E,
+         EmplPop = B23025_004E,
+         UnemplPop = B23025_005E,
+         Occ_Agri = B08126_002E,
+         Occ_Const = B08126_003E,
+         Occ_Manuf = B08126_004E,
+         Occ_Wholesale = B08126_005E,
+         Occ_Retail = B08126_006E,
+         Occ_Transport = B08126_007E,
+         Occ_Info = B08126_008E,
+         Occ_FinIns = B08126_009E,
+         Occ_Prof_sci_mangr = B08126_010E,
+         Occ_Edu_health = B08126_011E,
+         Occ_Art_Hosp = B08126_012E,
+         Occ_PubAdmin = B08126_014E,
+         Occ_ArmedForce = B08126_015E,
+         Occ_other = B08126_013E)%>%
+  dplyr::select(-NAME, -ends_with("M"))
+options(tigris_use_cache = TRUE)
+
+Chatt_census19 <- 
+  get_acs(geography = "tract", 
+          variables = c("B25026_001E", #total pop
+                        "B19013_001E", #med hh inc
+                        "B06012_002E", #poverty
+                        "B19058_002E", #with public assistance income or SNAP
+                       
+                        #housing
+                        "B25058_001E", #med rent
+                        "B25077_001E", #med home val
+                        "B25003_002E", #owner occupied
+                        "B25003_003E", #renter occupied
+                        "B25004_001E", #vacant hu
+                        "B25024_001E", #total hu
+                        "B25035_001E", #med year structure built
+                       
+                        #race
+                        "B03002_004E", #black pop
+                        "B03002_012E", #hisp / latino pop
+                        "B03002_003E", #white pop
+                        "B03002_006E", #asian pop
+                        "B03002_005E", #native american
+                        
+                        #education
+                        "B06009_005E", #bach degree
+                        "B06009_003E", #high school grad or equivilant
+                        "B06009_002E", #less than hs deg
+                        "B06009_006E", #grad or pro degree
+                        
+                        #means of transport to work
+                        "B08006_003E", #drove alone
+                        "B08006_004E", #carpooled
+                        "B08006_008E", #public transit
+                        "B08006_014E", #bike
+                        "B08006_015E", #walk
+                        "B08006_017E", #work from home
+                        
+                        #citizenship
+                        "B05001_002E", #US citizen born in US
+                        "B05001_006E", #not US citizen
+                        
+                        #employment
+                        "B23025_004E", #employed pop 16 & over
+                        "B23025_005E", #unemployed pop 16 & over
+                        "B08126_002E", #agriculture
+                        "B08126_003E", #construction
+                        "B08126_004E", #manufacturing
+                        "B08126_005E", #wholesale trade
+                        "B08126_006E", #retail
+                        "B08126_007E", #transport, warehouse, utilities
+                        "B08126_008E", #information
+                        "B08126_009E", #finance, insurance
+                        "B08126_010E", #pro, sci, management
+                        "B08126_011E", #education & health care
+                        "B08126_012E", #arts, entertainment, rec & hospitality
+                        "B08126_014E", #public admin
+                        "B08126_015E", #armed forces
+                        "B08126_013E"), #other
+                        
+          year=2019, state=47, county=065, 
+          geometry=TRUE, output="wide") %>%
+  st_transform('ESRI:102271') %>%
+  rename(TotalPop = B25026_001E, 
+         MedHHInc = B19013_001E, 
+         MedRent = B25058_001E,
+         MedHomeVal = B25077_001E,
+         VacHU = B25004_001E,
+         Poverty = B06012_002E,
+         PubSNAP = B19058_002E,
+         OwnerOcc = B25003_002E,
+         RenterOcc = B25003_003E,
+         TotalHU = B25024_001E,
+         MedHUBuilt = B25035_001E,
+         BlackPop = B03002_004E,
+         HispLatPop = B03002_012E,
+         WhitePop = B03002_003E,
+         AsianPop = B03002_006E,
+         NatAmPop = B03002_005E,
+         Bach_deg = B06009_005E,
+         No_HS_Deg = B06009_002E,
+         HS_Grad = B06009_003E,
+         Grad_deg = B06009_006E,
+         Drive_commute = B08006_003E,
+         Carpool_commute = B08006_004E,
+         PubTrans_commute = B08006_008E,
+         Bike_commute = B08006_014E,
+         Walk_commute = B08006_015E,
+         WFA_commute = B08006_017E,
+         US_cit = B05001_002E,
+         NotUS_cit = B05001_006E,
+         EmplPop = B23025_004E,
+         UnemplPop = B23025_005E,
+         Occ_Agri = B08126_002E,
+         Occ_Const = B08126_003E,
+         Occ_Manuf = B08126_004E,
+         Occ_Wholesale = B08126_005E,
+         Occ_Retail = B08126_006E,
+         Occ_Transport = B08126_007E,
+         Occ_Info = B08126_008E,
+         Occ_FinIns = B08126_009E,
+         Occ_Prof_sci_mangr = B08126_010E,
+         Occ_Edu_health = B08126_011E,
+         Occ_Art_Hosp = B08126_012E,
+         Occ_PubAdmin = B08126_014E,
+         Occ_ArmedForce = B08126_015E,
+         Occ_other = B08126_013E)%>%
+  dplyr::select(-NAME, -ends_with("M"))
+options(tigris_use_cache = TRUE)
+```
+
+
