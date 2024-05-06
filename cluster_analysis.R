@@ -2,30 +2,46 @@
 
 rm(list=ls())
 
-library(dplyr)
 library(tidyverse)
+library(tidycensus)
 library(factoextra)
 library(ggthemes)
 library(RColorBrewer)
+library(tmap)
+library(tigris)
+
+#### Chattanooga 
+
+Chatt_census <- read.csv("Chatt_census12.csv")
 
 
 #Scaling the data (code from here: https://stackoverflow.com/questions/15215457/standardize-data-columns-in-r)
-NTD_scaled <- NTD_cluster %>% 
-  mutate_at(c("UPT", "VRH", "OPEXP_TOTAL"), ~(scale(.) %>% 
-                                                as.vector))
+Chatt_scaled <- Chatt_census %>% 
+  mutate(PubSNAP_rate = PubSNAP/TotalPop, 
+         RenterOcc_rate = RenterOcc/TotalPop, 
+         WhitePop_rate = WhitePop / TotalPop, 
+         Grad_deg_rate = Grad_deg/TotalPop, 
+         PubTrans_commute_ratio = PubTrans_commute/Drive_commute, 
+         Citizen_Ratio = NotUS_cit/US_cit) %>% 
+  select(c(GEOID,MedHHInc, MedHomeVal, MedHUBuilt, PubSNAP_rate, RenterOcc_rate,
+           WhitePop_rate, Grad_deg_rate, PubTrans_commute_ratio, Citizen_Ratio)) %>% 
+  mutate_at(c(2:10), ~(scale(.) %>% 
+                         as.vector)) %>% 
+  na.omit()
+  
 
 #Identifying number of clusters
 
 set.seed(123)
 
-km.out <- kmeans(NTD_scaled, centers = 20, nstart = 20)
+km.out <- kmeans(Chatt_scaled, centers = 20, nstart = 20)
 km.out
 
 #### Scree Plot, from MNR / PBN ####
 
 # First, identify the number of clusters (k)
 # "Elbow" method
-mydata <- NTD_scaled
+mydata <- Chatt_scaled
 wss <- (nrow(mydata)-1)*sum(apply(mydata,2,var))
 for (i in 2:15) wss[i] <- sum(kmeans(mydata,
                                      centers=i)$withinss)
@@ -36,83 +52,104 @@ plot(1:15, wss, type="b", xlab="Number of Clusters",
 abline(v=4, lty="dashed", lwd=2, col="red")
 
 ### 4 clusters are best
-k <- 20
+k <- 4
 set.seed(123)
 # Build model with k clusters: km.out
-km.out <- kmeans(NTD_scaled, centers = k, nstart = 20)
+km.out <- kmeans(Chatt_scaled, centers = k, nstart = 20)
 
 ##Assigning Cluster IDs
-NTD_scaled$cluster_id <- factor(km.out$cluster)
+Chatt_scaled$cluster_id <- factor(km.out$cluster)
 
-#Rebuilding NTD scaled to join identifiers back in
+ggplot(Chatt_scaled, 
+       aes(x= MedHHInc, y= WhitePop_rate, color = cluster_id))+ 
+  geom_point()
 
-NTD_cluster2 <- NTD.ts %>% 
-  filter(Year == 2019 & Agency.Status == "Active" &
-           Reporter.Type == "Full Reporter"& Service != "PO"&
-           Mode == "MB"| 
-           Mode == "RB" | 
-           Mode =="CB"| 
-           Mode == "TB"&
-           Service != "PO") %>% 
-  group_by(Agency.Name) %>% 
-  summarize(across(c(UPT, VRH, OPEXP_TOTAL),sum)) %>% 
-  filter(UPT & VRH & OPEXP_TOTAL != 0)
-
-NTD_scaled2 <- NTD_cluster2 %>% 
-  mutate_at(c("UPT", "VRH", "OPEXP_TOTAL"), ~(scale(.) %>% 
-                                                as.vector))
-
-NTD_scaled <- NTD_scaled %>% 
-  left_join(NTD_scaled2)
-
-library(viridis)
-
-ggplot(NTD_scaled,
-       aes(VRH, UPT, color = cluster_id))+ 
-  geom_point()+ 
-  labs(y = "Scaled unliked passenger trips", 
-       x = "Scaled vehicle revenue miles", 
-       title = "Cluster IDs by UPT and VRM")+
-  scale_x_log10(limits = c(0.08, 11))+ 
-  scale_y_log10()+ 
-  scale_color_viridis(discrete = TRUE, option = "viridis", guide = guide_legend(title = "Cluster ID", label = list(size = 1)))
+chatt_join <- Chatt_scaled %>% 
+  select(c(GEOID, cluster_id)) %>% 
+  write.csv("chatt_cluster_ids.csv")
 
 
-ggsave("cluster_plot.png", height = 6, width = 7)
+Chatt_census12 <- 
+  get_acs(geography = "tract", 
+          variables = c("B25026_001E"),   year=2012, state=47, county=065, 
+          geometry=TRUE, output="wide"
+          ) %>% 
+  mutate(GEOID = as.numeric(GEOID))
+
+Chatt_census_clusters <- Chatt_census12 %>% 
+  left_join(chatt_join) 
+
+tm_shape(Chatt_census12)+ 
+  tm_polygons()
+
+#### Nashville 
+
+Nash_census <- read.csv("Nash_census12.csv")
 
 
-
-#Making an actually useful file of the clusters
-
-NTD_agency <- NTD.ts %>% 
-  select(c(NTD.ID, Agency.Name))
-NTD_agency <- NTD_agency[!duplicated(NTD_agency$NTD.ID), ]
-
-
-
-clusters_no_scale <- NTD_clusters %>% 
-  select(Agency.Name, cluster_id) %>% 
-  left_join(NTD_cluster2) %>% 
-  mutate(UPT = UPT/1000, 
-         VRH = VRH / 1000, 
-         cluster_id = as.numeric(cluster_id)) 
-
-options(scipen=10000)
+#Scaling the data (code from here: https://stackoverflow.com/questions/15215457/standardize-data-columns-in-r)
+Nash_scaled <- Nash_census %>% 
+  mutate(PubSNAP_rate = PubSNAP/TotalPop, 
+         RenterOcc_rate = RenterOcc/TotalPop, 
+         WhitePop_rate = WhitePop / TotalPop, 
+         Grad_deg_rate = Grad_deg/TotalPop, 
+         PubTrans_commute_ratio = PubTrans_commute/Drive_commute, 
+         Citizen_Ratio = NotUS_cit/US_cit) %>% 
+  select(c(GEOID,MedHHInc, MedHomeVal, MedHUBuilt, PubSNAP_rate, RenterOcc_rate,
+           WhitePop_rate, Grad_deg_rate, PubTrans_commute_ratio, Citizen_Ratio)) %>% 
+  na.omit() %>% 
+  mutate_at(c(2:10), ~(scale(.) %>% 
+                         as.vector))
 
 
-ggplot(clusters_no_scale, 
-       aes( x= VRH, y= UPT, col = cluster_id))+ 
-         geom_point(size = .75)+ 
-  scale_x_log10()+ 
-  scale_y_log10()+ 
-  labs( x= "1000s of Vehicle Revenue Hours", 
-        y= "1000s of Unlinked Passenger Trips")+ 
-  theme_clean()+ 
-  scale_color_viridis_b()
+#Identifying number of clusters
+
+set.seed(123)
+
+km.out <- kmeans(Nash_scaled, centers = 20, nstart = 20)
+km.out
+
+#### Scree Plot, from MNR / PBN ####
+
+# First, identify the number of clusters (k)
+# "Elbow" method
+mydata <- Nash_scaled
+wss <- (nrow(mydata)-1)*sum(apply(mydata,2,var))
+for (i in 2:15) wss[i] <- sum(kmeans(mydata,
+                                     centers=i)$withinss)
+plot(1:15, wss, type="b", xlab="Number of Clusters",
+     ylab="Within cluster sum of squares",
+     main="Assessing the Optimal Number of Clusters",
+     pch=20, cex=2)
+abline(v=4, lty="dashed", lwd=2, col="red")
+
+### 4 clusters are best
+k <- 4
+set.seed(123)
+# Build model with k clusters: km.out
+km.out <- kmeans(Nash_scaled, centers = k, nstart = 20)
+
+##Assigning Cluster IDs
+Nash_scaled$cluster_id <- factor(km.out$cluster)
+
+ggplot(Nash_scaled, 
+       aes(x= MedHHInc, y= WhitePop_rate, color = cluster_id))+ 
+  geom_point()
+
+nash_join <- Nash_scaled %>% 
+  select(c(GEOID, cluster_id)) 
+  write.csv("nash_cluster_ids.csv")
 
 
+Nash_census19 <- 
+  get_acs(geography = "tract", 
+          variables = c("B25026_001E"), 
+          year=2019, state=47, county=037, 
+          geometry=TRUE, output="wide") %>% 
+  mutate(GEOID = as.numeric(GEOID))
 
-table(NTD_clusters$cluster_id)
+Nash_census_clusters <- Nash_census19 %>% 
+  left_join(nash_join) 
 
-write.csv(NTD_clusters, "C:\\Users\\Jonathan\\OneDrive - PennO365\\F23\\Thesis\\R\\NTD_9_2023\\Data\\NTD_clusters.csv")
-
+tm_shape(Nash_census_clusters)+ 
+  tm_polygons(fill = "cluster_id")
