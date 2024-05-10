@@ -1,0 +1,765 @@
+---
+title: "Final"
+author: "Frances Murray, Bailey Bradford, Jonathan Zisk"
+date: "2024-04-26"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r setup_packages, results='hide', warning = FALSE, message = FALSE}
+library(tidyverse)
+library(tidycensus)
+library(sf)
+library(gt)
+library(gtExtras)
+library(factoextra)
+library(ggthemes)
+library(RColorBrewer)
+library(tmap)
+library(tigris)
+library(webshot2)
+```
+
+
+```{r Get ACS 2012 data, results='hide'}
+acs_vars_names <- c("TotalPop", "MedHHInc", "MedRent",
+         "MedHomeVal",
+         "VacHU",
+         "Poverty",
+         "PubSNAP",
+         "OwnerOcc",
+         "RenterOcc",
+         "TotalHU",
+         "MedHUBuilt",
+         "BlackPop",
+         "HispLatPop",
+         "WhitePop",
+         "AsianPop",
+         "NatAmPop",
+         "Bach_deg",
+         "No_HS_Deg",
+         "HS_Grad",
+         "Grad_deg",
+         "Drive_commute",
+         "Carpool_commute",
+         "PubTrans_commute",
+         "Bike_commute",
+         "Walk_commute",
+         "WFA_commute",
+         "US_cit",
+         "NotUS_cit",
+         "EmplPop",
+         "UnemplPop",
+         "Occ_Agri",
+         "Occ_Const",
+         "Occ_Manuf",
+         "Occ_Wholesale",
+         "Occ_Retail",
+         "Occ_Transport",
+         "Occ_Info",
+         "Occ_FinIns",
+         "Occ_Prof_sci_mangr",
+         "Occ_Edu_health",
+         "Occ_Art_Hosp",
+         "Occ_PubAdmin",
+         "Occ_ArmedForce",
+         "Occ_other")
+
+Nash_census12 <- 
+  get_acs(geography = "tract", 
+          variables = c("B25026_001E", #total pop
+                        "B19013_001E", #med hh inc
+                        "B06012_002E", #poverty
+                        "B19058_002E", #with public assistance income or SNAP
+                       
+                        #housing
+                        "B25058_001E", #med rent
+                        "B25077_001E", #med home val
+                        "B25003_002E", #owner occupied
+                        "B25003_003E", #renter occupied
+                        "B25004_001E", #vacant hu
+                        "B25024_001E", #total hu
+                        "B25035_001E", #med year structure built
+                       
+                        #race
+                        "B03002_004E", #black pop
+                        "B03002_012E", #hisp / latino pop
+                        "B03002_003E", #white pop
+                        "B03002_006E", #asian pop
+                        "B03002_005E", #native american
+                        
+                        #education
+                        "B06009_005E", #bach degree
+                        "B06009_003E", #high school grad or equivilant
+                        "B06009_002E", #less than hs deg
+                        "B06009_006E", #grad or pro degree
+                        
+                        #means of transport to work
+                        "B08006_003E", #drove alone
+                        "B08006_004E", #carpooled
+                        "B08006_008E", #public transit
+                        "B08006_014E", #bike
+                        "B08006_015E", #walk
+                        "B08006_017E", #work from home
+                        
+                        #citizenship
+                        "B05001_002E", #US citizen born in US
+                        "B05001_006E", #not US citizen
+                        
+                        #employment
+                        "B23025_004E", #employed pop 16 & over
+                        "B23025_005E", #unemployed pop 16 & over
+                        "B08126_002E", #agriculture
+                        "B08126_003E", #construction
+                        "B08126_004E", #manufacturing
+                        "B08126_005E", #wholesale trade
+                        "B08126_006E", #retail
+                        "B08126_007E", #transport, warehouse, utilities
+                        "B08126_008E", #information
+                        "B08126_009E", #finance, insurance
+                        "B08126_010E", #pro, sci, management
+                        "B08126_011E", #education & health care
+                        "B08126_012E", #arts, entertainment, rec & hospitality
+                        "B08126_014E", #public admin
+                        "B08126_015E", #armed forces
+                        "B08126_013E"), #other
+                        
+          year=2012, state=47, county=037, 
+          geometry=TRUE, output="wide") %>%
+  st_transform('ESRI:102271') %>%
+  rename(TotalPop = B25026_001E, 
+         MedHHInc = B19013_001E, 
+         MedRent = B25058_001E,
+         MedHomeVal = B25077_001E,
+         VacHU = B25004_001E,
+         Poverty = B06012_002E,
+         PubSNAP = B19058_002E,
+         OwnerOcc = B25003_002E,
+         RenterOcc = B25003_003E,
+         TotalHU = B25024_001E,
+         MedHUBuilt = B25035_001E,
+         BlackPop = B03002_004E,
+         HispLatPop = B03002_012E,
+         WhitePop = B03002_003E,
+         AsianPop = B03002_006E,
+         NatAmPop = B03002_005E,
+         Bach_deg = B06009_005E,
+         No_HS_Deg = B06009_002E,
+         HS_Grad = B06009_003E,
+         Grad_deg = B06009_006E,
+         Drive_commute = B08006_003E,
+         Carpool_commute = B08006_004E,
+         PubTrans_commute = B08006_008E,
+         Bike_commute = B08006_014E,
+         Walk_commute = B08006_015E,
+         WFA_commute = B08006_017E,
+         US_cit = B05001_002E,
+         NotUS_cit = B05001_006E,
+         EmplPop = B23025_004E,
+         UnemplPop = B23025_005E,
+         Occ_Agri = B08126_002E,
+         Occ_Const = B08126_003E,
+         Occ_Manuf = B08126_004E,
+         Occ_Wholesale = B08126_005E,
+         Occ_Retail = B08126_006E,
+         Occ_Transport = B08126_007E,
+         Occ_Info = B08126_008E,
+         Occ_FinIns = B08126_009E,
+         Occ_Prof_sci_mangr = B08126_010E,
+         Occ_Edu_health = B08126_011E,
+         Occ_Art_Hosp = B08126_012E,
+         Occ_PubAdmin = B08126_014E,
+         Occ_ArmedForce = B08126_015E,
+         Occ_other = B08126_013E)%>%
+  dplyr::select(-NAME, -ends_with("M")) %>% 
+  rename_with(~ str_c(., "_12"),
+              .cols = all_of(acs_vars_names))
+  
+options(tigris_use_cache = TRUE)
+
+Chatt_census12 <- 
+  get_acs(geography = "tract", 
+          variables = c("B25026_001E", #total pop
+                        "B19013_001E", #med hh inc
+                        "B06012_002E", #poverty
+                        "B19058_002E", #with public assistance income or SNAP
+                       
+                        #housing
+                        "B25058_001E", #med rent
+                        "B25077_001E", #med home val
+                        "B25003_002E", #owner occupied
+                        "B25003_003E", #renter occupied
+                        "B25004_001E", #vacant hu
+                        "B25024_001E", #total hu
+                        "B25035_001E", #med year structure built
+                       
+                        #race
+                        "B03002_004E", #black pop
+                        "B03002_012E", #hisp / latino pop
+                        "B03002_003E", #white pop
+                        "B03002_006E", #asian pop
+                        "B03002_005E", #native american
+                        
+                        #education
+                        "B06009_005E", #bach degree
+                        "B06009_003E", #high school grad or equivilant
+                        "B06009_002E", #less than hs deg
+                        "B06009_006E", #grad or pro degree
+                        
+                        #means of transport to work
+                        "B08006_003E", #drove alone
+                        "B08006_004E", #carpooled
+                        "B08006_008E", #public transit
+                        "B08006_014E", #bike
+                        "B08006_015E", #walk
+                        "B08006_017E", #work from home
+                        
+                        #citizenship
+                        "B05001_002E", #US citizen born in US
+                        "B05001_006E", #not US citizen
+                        
+                        #employment
+                        "B23025_004E", #employed pop 16 & over
+                        "B23025_005E", #unemployed pop 16 & over
+                        "B08126_002E", #agriculture
+                        "B08126_003E", #construction
+                        "B08126_004E", #manufacturing
+                        "B08126_005E", #wholesale trade
+                        "B08126_006E", #retail
+                        "B08126_007E", #transport, warehouse, utilities
+                        "B08126_008E", #information
+                        "B08126_009E", #finance, insurance
+                        "B08126_010E", #pro, sci, management
+                        "B08126_011E", #education & health care
+                        "B08126_012E", #arts, entertainment, rec & hospitality
+                        "B08126_014E", #public admin
+                        "B08126_015E", #armed forces
+                        "B08126_013E"), #other
+                        
+          year=2012, state=47, county=065, 
+          geometry=TRUE, output="wide") %>%
+  st_transform('ESRI:102271') %>%
+  rename(TotalPop = B25026_001E, 
+         MedHHInc = B19013_001E, 
+         MedRent = B25058_001E,
+         MedHomeVal = B25077_001E,
+         VacHU = B25004_001E,
+         Poverty = B06012_002E,
+         PubSNAP = B19058_002E,
+         OwnerOcc = B25003_002E,
+         RenterOcc = B25003_003E,
+         TotalHU = B25024_001E,
+         MedHUBuilt = B25035_001E,
+         BlackPop = B03002_004E,
+         HispLatPop = B03002_012E,
+         WhitePop = B03002_003E,
+         AsianPop = B03002_006E,
+         NatAmPop = B03002_005E,
+         Bach_deg = B06009_005E,
+         No_HS_Deg = B06009_002E,
+         HS_Grad = B06009_003E,
+         Grad_deg = B06009_006E,
+         Drive_commute = B08006_003E,
+         Carpool_commute = B08006_004E,
+         PubTrans_commute = B08006_008E,
+         Bike_commute = B08006_014E,
+         Walk_commute = B08006_015E,
+         WFA_commute = B08006_017E,
+         US_cit = B05001_002E,
+         NotUS_cit = B05001_006E,
+         EmplPop = B23025_004E,
+         UnemplPop = B23025_005E,
+         Occ_Agri = B08126_002E,
+         Occ_Const = B08126_003E,
+         Occ_Manuf = B08126_004E,
+         Occ_Wholesale = B08126_005E,
+         Occ_Retail = B08126_006E,
+         Occ_Transport = B08126_007E,
+         Occ_Info = B08126_008E,
+         Occ_FinIns = B08126_009E,
+         Occ_Prof_sci_mangr = B08126_010E,
+         Occ_Edu_health = B08126_011E,
+         Occ_Art_Hosp = B08126_012E,
+         Occ_PubAdmin = B08126_014E,
+         Occ_ArmedForce = B08126_015E,
+         Occ_other = B08126_013E)%>%
+  dplyr::select(-NAME, -ends_with("M")) %>% 
+  rename_with(~ str_c(., "_12"),
+              .cols = all_of(acs_vars_names))
+
+options(tigris_use_cache = TRUE)
+```
+
+```{r Get ACS 2019 data, results='hide'}
+Nash_census19 <- 
+  get_acs(geography = "tract", 
+          variables = c("B25026_001E", #total pop
+                        "B19013_001E", #med hh inc
+                        "B06012_002E", #poverty
+                        "B19058_002E", #with public assistance income or SNAP
+                       
+                        #housing
+                        "B25058_001E", #med rent
+                        "B25077_001E", #med home val
+                        "B25003_002E", #owner occupied
+                        "B25003_003E", #renter occupied
+                        "B25004_001E", #vacant hu
+                        "B25024_001E", #total hu
+                        "B25035_001E", #med year structure built
+                       
+                        #race
+                        "B03002_004E", #black pop
+                        "B03002_012E", #hisp / latino pop
+                        "B03002_003E", #white pop
+                        "B03002_006E", #asian pop
+                        "B03002_005E", #native american
+                        
+                        #education
+                        "B06009_005E", #bach degree
+                        "B06009_003E", #high school grad or equivilant
+                        "B06009_002E", #less than hs deg
+                        "B06009_006E", #grad or pro degree
+                        
+                        #means of transport to work
+                        "B08006_003E", #drove alone
+                        "B08006_004E", #carpooled
+                        "B08006_008E", #public transit
+                        "B08006_014E", #bike
+                        "B08006_015E", #walk
+                        "B08006_017E", #work from home
+                        
+                        #citizenship
+                        "B05001_002E", #US citizen born in US
+                        "B05001_006E", #not US citizen
+                        
+                        #employment
+                        "B23025_004E", #employed pop 16 & over
+                        "B23025_005E", #unemployed pop 16 & over
+                        "B08126_002E", #agriculture
+                        "B08126_003E", #construction
+                        "B08126_004E", #manufacturing
+                        "B08126_005E", #wholesale trade
+                        "B08126_006E", #retail
+                        "B08126_007E", #transport, warehouse, utilities
+                        "B08126_008E", #information
+                        "B08126_009E", #finance, insurance
+                        "B08126_010E", #pro, sci, management
+                        "B08126_011E", #education & health care
+                        "B08126_012E", #arts, entertainment, rec & hospitality
+                        "B08126_014E", #public admin
+                        "B08126_015E", #armed forces
+                        "B08126_013E"), #other
+                        
+          year=2019, state=47, county=037, 
+          geometry=TRUE, output="wide") %>%
+  st_transform('ESRI:102271') %>%
+  rename(TotalPop = B25026_001E, 
+         MedHHInc = B19013_001E, 
+         MedRent = B25058_001E,
+         MedHomeVal = B25077_001E,
+         VacHU = B25004_001E,
+         Poverty = B06012_002E,
+         PubSNAP = B19058_002E,
+         OwnerOcc = B25003_002E,
+         RenterOcc = B25003_003E,
+         TotalHU = B25024_001E,
+         MedHUBuilt = B25035_001E,
+         BlackPop = B03002_004E,
+         HispLatPop = B03002_012E,
+         WhitePop = B03002_003E,
+         AsianPop = B03002_006E,
+         NatAmPop = B03002_005E,
+         Bach_deg = B06009_005E,
+         No_HS_Deg = B06009_002E,
+         HS_Grad = B06009_003E,
+         Grad_deg = B06009_006E,
+         Drive_commute = B08006_003E,
+         Carpool_commute = B08006_004E,
+         PubTrans_commute = B08006_008E,
+         Bike_commute = B08006_014E,
+         Walk_commute = B08006_015E,
+         WFA_commute = B08006_017E,
+         US_cit = B05001_002E,
+         NotUS_cit = B05001_006E,
+         EmplPop = B23025_004E,
+         UnemplPop = B23025_005E,
+         Occ_Agri = B08126_002E,
+         Occ_Const = B08126_003E,
+         Occ_Manuf = B08126_004E,
+         Occ_Wholesale = B08126_005E,
+         Occ_Retail = B08126_006E,
+         Occ_Transport = B08126_007E,
+         Occ_Info = B08126_008E,
+         Occ_FinIns = B08126_009E,
+         Occ_Prof_sci_mangr = B08126_010E,
+         Occ_Edu_health = B08126_011E,
+         Occ_Art_Hosp = B08126_012E,
+         Occ_PubAdmin = B08126_014E,
+         Occ_ArmedForce = B08126_015E,
+         Occ_other = B08126_013E) %>%
+  dplyr::select(-NAME, -ends_with("M")) %>% 
+  rename_with(~ str_c(., "_19"),
+              .cols = all_of(acs_vars_names))
+
+options(tigris_use_cache = TRUE)
+
+Chatt_census19 <- 
+  get_acs(geography = "tract", 
+          variables = c("B25026_001E", #total pop
+                        "B19013_001E", #med hh inc
+                        "B06012_002E", #poverty
+                        "B19058_002E", #with public assistance income or SNAP
+                       
+                        #housing
+                        "B25058_001E", #med rent
+                        "B25077_001E", #med home val
+                        "B25003_002E", #owner occupied
+                        "B25003_003E", #renter occupied
+                        "B25004_001E", #vacant hu
+                        "B25024_001E", #total hu
+                        "B25035_001E", #med year structure built
+                       
+                        #race
+                        "B03002_004E", #black pop
+                        "B03002_012E", #hisp / latino pop
+                        "B03002_003E", #white pop
+                        "B03002_006E", #asian pop
+                        "B03002_005E", #native american
+                        
+                        #education
+                        "B06009_005E", #bach degree
+                        "B06009_003E", #high school grad or equivilant
+                        "B06009_002E", #less than hs deg
+                        "B06009_006E", #grad or pro degree
+                        
+                        #means of transport to work
+                        "B08006_003E", #drove alone
+                        "B08006_004E", #carpooled
+                        "B08006_008E", #public transit
+                        "B08006_014E", #bike
+                        "B08006_015E", #walk
+                        "B08006_017E", #work from home
+                        
+                        #citizenship
+                        "B05001_002E", #US citizen born in US
+                        "B05001_006E", #not US citizen
+                        
+                        #employment
+                        "B23025_004E", #employed pop 16 & over
+                        "B23025_005E", #unemployed pop 16 & over
+                        "B08126_002E", #agriculture
+                        "B08126_003E", #construction
+                        "B08126_004E", #manufacturing
+                        "B08126_005E", #wholesale trade
+                        "B08126_006E", #retail
+                        "B08126_007E", #transport, warehouse, utilities
+                        "B08126_008E", #information
+                        "B08126_009E", #finance, insurance
+                        "B08126_010E", #pro, sci, management
+                        "B08126_011E", #education & health care
+                        "B08126_012E", #arts, entertainment, rec & hospitality
+                        "B08126_014E", #public admin
+                        "B08126_015E", #armed forces
+                        "B08126_013E"), #other
+                        
+          year=2019, state=47, county=065, 
+          geometry=TRUE, output="wide") %>%
+  st_transform('ESRI:102271') %>%
+  rename(TotalPop = B25026_001E, 
+         MedHHInc = B19013_001E, 
+         MedRent = B25058_001E,
+         MedHomeVal = B25077_001E,
+         VacHU = B25004_001E,
+         Poverty = B06012_002E,
+         PubSNAP = B19058_002E,
+         OwnerOcc = B25003_002E,
+         RenterOcc = B25003_003E,
+         TotalHU = B25024_001E,
+         MedHUBuilt = B25035_001E,
+         BlackPop = B03002_004E,
+         HispLatPop = B03002_012E,
+         WhitePop = B03002_003E,
+         AsianPop = B03002_006E,
+         NatAmPop = B03002_005E,
+         Bach_deg = B06009_005E,
+         No_HS_Deg = B06009_002E,
+         HS_Grad = B06009_003E,
+         Grad_deg = B06009_006E,
+         Drive_commute = B08006_003E,
+         Carpool_commute = B08006_004E,
+         PubTrans_commute = B08006_008E,
+         Bike_commute = B08006_014E,
+         Walk_commute = B08006_015E,
+         WFA_commute = B08006_017E,
+         US_cit = B05001_002E,
+         NotUS_cit = B05001_006E,
+         EmplPop = B23025_004E,
+         UnemplPop = B23025_005E,
+         Occ_Agri = B08126_002E,
+         Occ_Const = B08126_003E,
+         Occ_Manuf = B08126_004E,
+         Occ_Wholesale = B08126_005E,
+         Occ_Retail = B08126_006E,
+         Occ_Transport = B08126_007E,
+         Occ_Info = B08126_008E,
+         Occ_FinIns = B08126_009E,
+         Occ_Prof_sci_mangr = B08126_010E,
+         Occ_Edu_health = B08126_011E,
+         Occ_Art_Hosp = B08126_012E,
+         Occ_PubAdmin = B08126_014E,
+         Occ_ArmedForce = B08126_015E,
+         Occ_other = B08126_013E)%>%
+  dplyr::select(-NAME, -ends_with("M")) %>% 
+  rename_with(~ str_c(., "_19"),
+              .cols = all_of(acs_vars_names))
+
+inflation_factor <- 1.11 # 2012 dollars to 2019 dollars
+
+Nash_census <- Nash_census12 %>%
+  st_drop_geometry() %>% 
+  left_join(Nash_census19, by = c("GEOID")) %>% 
+  st_sf() %>% 
+  mutate()
+  
+
+options(tigris_use_cache = TRUE)
+```
+
+## Census Tract Cluster Analysis
+
+```{r assigning clusters}
+
+#### Chattanooga 
+
+Chatt_census <- read.csv("Chatt_census12.csv")
+
+
+#Scaling the data (code from here: https://stackoverflow.com/questions/15215457/standardize-data-columns-in-r)
+Chatt_scaled <- Chatt_census %>% 
+  mutate(PubSNAP_rate = PubSNAP/TotalPop, 
+         RenterOcc_rate = RenterOcc/TotalPop, 
+         WhitePop_rate = WhitePop / TotalPop, 
+         Grad_deg_rate = Grad_deg/TotalPop, 
+         PubTrans_commute_ratio = PubTrans_commute/Drive_commute, 
+         Citizen_Ratio = NotUS_cit/US_cit) %>% 
+  select(c(GEOID,MedHHInc, MedHomeVal, MedHUBuilt, PubSNAP_rate, RenterOcc_rate,
+           WhitePop_rate, Grad_deg_rate, PubTrans_commute_ratio, Citizen_Ratio)) %>% 
+  mutate_at(c(2:10), ~(scale(.) %>% 
+                         as.vector)) %>% 
+  na.omit()
+  
+
+#Identifying number of clusters
+
+set.seed(123)
+
+km.out <- kmeans(Chatt_scaled, centers = 20, nstart = 20)
+km.out
+
+#### Scree Plot, from MNR / PBN ####
+
+# First, identify the number of clusters (k)
+# "Elbow" method
+mydata <- Chatt_scaled
+wss <- (nrow(mydata)-1)*sum(apply(mydata,2,var))
+for (i in 2:15) wss[i] <- sum(kmeans(mydata,
+                                     centers=i)$withinss)
+plot(1:15, wss, type="b", xlab="Number of Clusters",
+     ylab="Within cluster sum of squares",
+     main="Assessing the Optimal Number of Clusters",
+     pch=20, cex=2)
+abline(v=4, lty="dashed", lwd=2, col="red")
+
+### 4 clusters are best
+k <- 4
+set.seed(123)
+# Build model with k clusters: km.out
+km.out <- kmeans(Chatt_scaled, centers = k, nstart = 20)
+
+##Assigning Cluster IDs
+Chatt_scaled$cluster_id <- factor(km.out$cluster)
+
+ggplot(Chatt_scaled, 
+       aes(x= MedHHInc, y= WhitePop_rate, color = cluster_id))+ 
+  geom_point()
+
+chatt_join <- Chatt_scaled %>% 
+  select(c(GEOID, cluster_id)) 
+
+
+Chatt_census12 <- 
+  get_acs(geography = "tract", 
+          variables = c("B25026_001E"),   year=2012, state=47, county=065, 
+          geometry=TRUE, output="wide"
+          ) %>% 
+  mutate(GEOID = as.numeric(GEOID))
+
+Chatt_census_clusters <- Chatt_census12 %>% 
+  left_join(chatt_join) 
+
+tm_shape(Chatt_census12)+ 
+  tm_polygons()
+
+#### Nashville 
+
+Nash_census <- read.csv("Nash_census12.csv")
+
+
+#Scaling the data (code from here: https://stackoverflow.com/questions/15215457/standardize-data-columns-in-r)
+Nash_scaled <- Nash_census %>% 
+  mutate(PubSNAP_rate = PubSNAP/TotalPop, 
+         RenterOcc_rate = RenterOcc/TotalPop, 
+         WhitePop_rate = WhitePop / TotalPop, 
+         Grad_deg_rate = Grad_deg/TotalPop, 
+         PubTrans_commute_ratio = PubTrans_commute/Drive_commute, 
+         Citizen_Ratio = NotUS_cit/US_cit) %>% 
+  select(c(GEOID,MedHHInc, MedHomeVal, MedHUBuilt, PubSNAP_rate, RenterOcc_rate,
+           WhitePop_rate, Grad_deg_rate, PubTrans_commute_ratio, Citizen_Ratio)) %>% 
+  na.omit() %>% 
+  mutate_at(c(2:10), ~(scale(.) %>% 
+                         as.vector))
+
+
+#Identifying number of clusters
+
+set.seed(123)
+
+km.out <- kmeans(Nash_scaled, centers = 20, nstart = 20)
+km.out
+
+#### Scree Plot, from MNR / PBN ####
+
+# First, identify the number of clusters (k)
+# "Elbow" method
+mydata <- Nash_scaled
+wss <- (nrow(mydata)-1)*sum(apply(mydata,2,var))
+for (i in 2:15) wss[i] <- sum(kmeans(mydata,
+                                     centers=i)$withinss)
+plot(1:15, wss, type="b", xlab="Number of Clusters",
+     ylab="Within cluster sum of squares",
+     main="Assessing the Optimal Number of Clusters",
+     pch=20, cex=2)
+abline(v=4, lty="dashed", lwd=2, col="red")
+
+### 4 clusters are best
+k <- 4
+set.seed(123)
+# Build model with k clusters: km.out
+km.out <- kmeans(Nash_scaled, centers = k, nstart = 20)
+
+##Assigning Cluster IDs
+Nash_scaled$cluster_id <- factor(km.out$cluster)
+
+ggplot(Nash_scaled, 
+       aes(x= MedHHInc, y= WhitePop_rate, color = cluster_id))+ 
+  geom_point()
+
+nash_join <- Nash_scaled %>% 
+  select(c(GEOID, cluster_id))
+
+
+Nash_census19 <- 
+  get_acs(geography = "tract", 
+          variables = c("B25026_001E"), 
+          year=2019, state=47, county=037, 
+          geometry=TRUE, output="wide") %>% 
+  mutate(GEOID = as.numeric(GEOID))
+
+Nash_census_clusters <- Nash_census19 %>% 
+  left_join(nash_join) 
+
+tm_shape(Nash_census_clusters)+ 
+  tm_polygons(fill = "cluster_id")
+
+```
+
+
+```{r chattanooga summary, results='markup'}
+
+chatt_cluster_summary <- Chatt_census_clusters %>% 
+  st_drop_geometry() %>% 
+  select(c(GEOID, cluster_id)) %>% 
+  right_join(Chatt_census) %>% 
+  select(c(cluster_id, MedHHInc, TotalPop, MedRent, WhitePop, BlackPop, HispLatPop, Bach_deg,Grad_deg, PubTrans_commute)) %>% 
+  mutate(n_clust = 1) %>%  
+  group_by(cluster_id) %>% 
+  summarise(across(c(TotalPop,WhitePop, BlackPop, HispLatPop, Bach_deg,Grad_deg, PubTrans_commute, n_clust), sum), 
+            med_inc = mean(MedHHInc), 
+            med_rent = mean(MedRent)) %>% 
+mutate(
+white_rate = WhitePop/TotalPop, 
+         black_rate = BlackPop/TotalPop, 
+         hisp_rate = HispLatPop/TotalPop, 
+         deg_rate = (Bach_deg+Grad_deg)/TotalPop, 
+         trans_com_rate = PubTrans_commute / TotalPop) %>% 
+  select(c(cluster_id, n_clust,med_inc, med_rent, white_rate, black_rate, hisp_rate, deg_rate, trans_com_rate)) %>% 
+  na.omit()
+
+
+chatt_cluster_summary %>% 
+  gt() %>% 
+  fmt_percent(columns = 5:9, 
+              decimals = 1) %>% 
+  fmt_currency(columns = 3:4, 
+               decimals = 0) %>% 
+  cols_label(cluster_id = "Cluster", 
+             n_clust = "Count", 
+             med_inc = "Median Income",
+              med_rent = "Median Rent",
+             white_rate = "White", 
+             black_rate = "Black", 
+             hisp_rate = "Hispanic", 
+             deg_rate = "College Degree", 
+             trans_com_rate = "Commute by Transit") %>%
+  cols_width(3:9 ~ px(200)) %>%
+  tab_header(title = "Summary of Cluster Characteristics for Chattanooga",
+             subtitle = "Source: 2012 ACS 5-year Estimate") %>% 
+  gt_theme_538()
+
+```
+
+```{r nashville summary, results='markup'}
+
+nash_cluster_summary <- Nash_census_clusters %>% 
+  st_drop_geometry() %>% 
+  select(c(GEOID, cluster_id)) %>% 
+  right_join(Nash_census) %>% 
+  select(c(cluster_id, MedHHInc, TotalPop, MedRent, WhitePop, BlackPop, HispLatPop, Bach_deg,Grad_deg, PubTrans_commute)) %>% 
+  mutate(n_clust = 1) %>%  
+  group_by(cluster_id) %>% 
+  summarise(across(c(TotalPop,WhitePop, BlackPop, HispLatPop, Bach_deg,Grad_deg, PubTrans_commute, n_clust), sum), 
+            med_inc = mean(MedHHInc), 
+            med_rent = mean(MedRent, na.rm=T)) %>% 
+mutate(
+white_rate = WhitePop/TotalPop, 
+         black_rate = BlackPop/TotalPop, 
+         hisp_rate = HispLatPop/TotalPop, 
+         deg_rate = (Bach_deg+Grad_deg)/TotalPop, 
+         trans_com_rate = PubTrans_commute / TotalPop) %>% 
+  select(c(cluster_id, n_clust,med_inc, med_rent, white_rate, black_rate, hisp_rate, deg_rate, trans_com_rate)) %>%  
+  na.omit()
+
+nash_cluster_summary %>% 
+  gt() %>% 
+  fmt_percent(columns = 5:9, 
+              decimals = 1) %>% 
+  fmt_currency(columns = 3:4, 
+               decimals = 0) %>% 
+  cols_label(cluster_id = "Cluster", 
+             n_clust = "Count", 
+             med_inc = "Median Income",
+              med_rent = "Median Rent",
+             white_rate = "White", 
+             black_rate = "Black", 
+             hisp_rate = "Hispanic", 
+             deg_rate = "College Degree", 
+             trans_com_rate = "Commute by Transit") %>%
+  cols_width(3:9 ~ px(200)) %>%
+  tab_header(title = "Summary of Cluster Characteristics for Nashville",
+             subtitle = "Source: 2012 ACS 5-year Estimate") %>% 
+  gt_theme_538()
+
+```
