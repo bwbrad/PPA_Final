@@ -25,8 +25,9 @@ library(webshot2)
 
 
 ```{r Get ACS 2012 data, results='hide'}
-acs_vars_names <- c("TotalPop", "MedHHInc", "MedRent",
-         "MedHomeVal",
+inflation_factor <- 1.11 # 2012 dollars to 2019 dollars
+
+acs_vars_names <- c("TotalPop", "MedHHInc", "MedRent", "MedHomeVal",
          "VacHU",
          "Poverty",
          "PubSNAP",
@@ -66,7 +67,15 @@ acs_vars_names <- c("TotalPop", "MedHHInc", "MedRent",
          "Occ_Art_Hosp",
          "Occ_PubAdmin",
          "Occ_ArmedForce",
-         "Occ_other")
+         "Occ_other",
+         "PubSNAP_rate",
+         "RenterOcc_rate", 
+         "WhitePop_rate", 
+         "BlackPop_rate",
+         "HispLatPop_rate",
+         "Grad_deg_rate", 
+         "PubTrans_commute_ratio",
+         "Citizen_Ratio")
 
 Nash_census12 <- 
   get_acs(geography = "tract", 
@@ -175,6 +184,17 @@ Nash_census12 <-
          Occ_ArmedForce = B08126_015E,
          Occ_other = B08126_013E)%>%
   dplyr::select(-NAME, -ends_with("M")) %>% 
+  mutate(MedHHInc = MedHHInc * inflation_factor,
+         MedRent = MedRent * inflation_factor,
+         MedHomeVal = MedHomeVal * inflation_factor,
+         PubSNAP_rate = PubSNAP/TotalPop, 
+         RenterOcc_rate = RenterOcc/TotalPop, 
+         WhitePop_rate = WhitePop / TotalPop, 
+         BlackPop_rate = BlackPop / TotalPop,
+         HispLatPop_rate = HispLatPop / TotalPop,
+         Grad_deg_rate = Grad_deg/TotalPop, 
+         PubTrans_commute_ratio = PubTrans_commute/Drive_commute,
+         Citizen_Ratio = NotUS_cit/US_cit) %>% 
   rename_with(~ str_c(., "_12"),
               .cols = all_of(acs_vars_names))
   
@@ -287,6 +307,17 @@ Chatt_census12 <-
          Occ_ArmedForce = B08126_015E,
          Occ_other = B08126_013E)%>%
   dplyr::select(-NAME, -ends_with("M")) %>% 
+  mutate(MedHHInc = MedHHInc * inflation_factor,
+         MedRent = MedRent * inflation_factor,
+         MedHomeVal = MedHomeVal * inflation_factor,
+         PubSNAP_rate = PubSNAP/TotalPop, 
+         RenterOcc_rate = RenterOcc/TotalPop, 
+         WhitePop_rate = WhitePop / TotalPop, 
+         BlackPop_rate = BlackPop / TotalPop,
+         HispLatPop_rate = HispLatPop / TotalPop,
+         Grad_deg_rate = Grad_deg/TotalPop, 
+         PubTrans_commute_ratio = PubTrans_commute/Drive_commute,
+         Citizen_Ratio = NotUS_cit/US_cit) %>% 
   rename_with(~ str_c(., "_12"),
               .cols = all_of(acs_vars_names))
 
@@ -401,6 +432,14 @@ Nash_census19 <-
          Occ_ArmedForce = B08126_015E,
          Occ_other = B08126_013E) %>%
   dplyr::select(-NAME, -ends_with("M")) %>% 
+  mutate(PubSNAP_rate = PubSNAP/TotalPop, 
+         RenterOcc_rate = RenterOcc/TotalPop, 
+         WhitePop_rate = WhitePop / TotalPop, 
+         BlackPop_rate = BlackPop / TotalPop,
+         HispLatPop_rate = HispLatPop / TotalPop,
+         Grad_deg_rate = Grad_deg/TotalPop, 
+         PubTrans_commute_ratio = PubTrans_commute/Drive_commute,
+         Citizen_Ratio = NotUS_cit/US_cit) %>% 
   rename_with(~ str_c(., "_19"),
               .cols = all_of(acs_vars_names))
 
@@ -513,17 +552,46 @@ Chatt_census19 <-
          Occ_ArmedForce = B08126_015E,
          Occ_other = B08126_013E)%>%
   dplyr::select(-NAME, -ends_with("M")) %>% 
+  mutate(PubSNAP_rate = PubSNAP/TotalPop, 
+         RenterOcc_rate = RenterOcc/TotalPop, 
+         WhitePop_rate = WhitePop / TotalPop, 
+         BlackPop_rate = BlackPop / TotalPop,
+         HispLatPop_rate = HispLatPop / TotalPop,
+         Grad_deg_rate = Grad_deg/TotalPop, 
+         PubTrans_commute_ratio = PubTrans_commute/Drive_commute,
+         Citizen_Ratio = NotUS_cit/US_cit) %>% 
   rename_with(~ str_c(., "_19"),
               .cols = all_of(acs_vars_names))
-
-inflation_factor <- 1.11 # 2012 dollars to 2019 dollars
 
 Nash_census <- Nash_census12 %>%
   st_drop_geometry() %>% 
   left_join(Nash_census19, by = c("GEOID")) %>% 
   st_sf() %>% 
-  mutate()
+  mutate(chng_MedHHInc = MedHHInc_19 - MedHHInc_12,
+         chng_MedRent = MedRent_19 - MedRent_12,
+         chng_PubSNAP_rate = PubSNAP_rate_19 - PubSNAP_rate_12,
+         chng_RenterOcc_rate = RenterOcc_rate_19 - RenterOcc_rate_12,
+         chng_WhitePop_rate = WhitePop_rate_19 - WhitePop_rate_12,
+         chng_BlackPop_rate = BlackPop_rate_19 - BlackPop_rate_12,
+         chng_HispLatPop_rate = HispLatPop_rate_19 - HispLatPop_rate_12,
+         chng_Grad_deg_rate_12 = Grad_deg_rate_19 - Grad_deg_rate_12,
+         chng_PubTrans_commute_ratio = PubTrans_commute_ratio_19 - PubTrans_commute_ratio_12,
+         chng_Citizen_Ratio = Citizen_Ratio_19 - Citizen_Ratio_12)
   
+Chatt_census <- Chatt_census12 %>%
+  st_drop_geometry() %>% 
+  left_join(Chatt_census19, by = c("GEOID")) %>% 
+  st_sf() %>% 
+  mutate(chng_MedHHInc = MedHHInc_19 - MedHHInc_12,
+         chng_MedRent = MedRent_19 - MedRent_12,
+         chng_PubSNAP_rate = PubSNAP_rate_19 - PubSNAP_rate_12,
+         chng_RenterOcc_rate = RenterOcc_rate_19 - RenterOcc_rate_12,
+         chng_WhitePop_rate = WhitePop_rate_19 - WhitePop_rate_12,
+         chng_BlackPop_rate = BlackPop_rate_19 - BlackPop_rate_12,
+         chng_HispLatPop_rate = HispLatPop_rate_19 - HispLatPop_rate_12,
+         chng_Grad_deg_rate_12 = Grad_deg_rate_19 - Grad_deg_rate_12,
+         chng_PubTrans_commute_ratio = PubTrans_commute_ratio_19 - PubTrans_commute_ratio_12,
+         chng_Citizen_Ratio = Citizen_Ratio_19 - Citizen_Ratio_12)
 
 options(tigris_use_cache = TRUE)
 ```
