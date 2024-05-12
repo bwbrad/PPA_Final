@@ -32,6 +32,7 @@ library(lubridate)
 library(car)
 library(psych)
 library(gridExtra)
+library(ggpubr)
 ```
 
 
@@ -1145,18 +1146,36 @@ Nash_bus_map <- ggplot() +
 
 ## Logit models to predict change cluster in Nashville
 
+
+
 ```{r}
-nash_change_logit <- glm(chng_cluster ~ .,
-                         family="binomial" (link="logit"), 
-                         Nash_census %>% 
-                           select(chng_cluster, BlackPop_rate_19,
-                                  pct_chng_crime) %>% 
-                           st_drop_geometry())
+
+nash_change_logit <- glm(chng_cluster ~ MedHHInc_12+MedRent_12+ MedHUBuilt_12+ PubSNAP_12+ RenterOcc_12 + WhitePop_12 + BlackPop_rate_12 + HispLatPop_rate_12+  Grad_deg_rate_12 + PubTrans_commute_12 + Citizen_Ratio_12,
+                  family="binomial" (link="logit"), Nash_census)
 
 summary(nash_change_logit)
+
+nash_change_logit2 <- glm(chng_cluster ~ near_bus + n_crime_18 + n_pub_art,
+                  family="binomial" (link="logit"), Nash_census)
+
+summary(nash_change_logit2)
+
+nash_change_logit3 <- glm(chng_cluster ~ MedHHInc_12+ MedHUBuilt_12+ RenterOcc_12 + BlackPop_rate_12  + PubTrans_commute_12 + Citizen_Ratio_12 + near_bus + n_crime_18,
+                  family="binomial" (link="logit"), Nash_census)
+
+summary(nash_change_logit3)
+
+nash_change_logit4 <- glm(chng_cluster ~ MedHHInc_12 + BlackPop_rate_12 + HispLatPop_12 + Grad_deg_rate_12  ,
+                  family="binomial" (link="logit"), Nash_census)
+
+summary(nash_change_logit4)
+
+
 ```
 
-# Confusion matrix
+
+
+# Confusion matrices 
 
 ```{r}
 Nash_census <- Nash_census %>% 
@@ -1165,72 +1184,75 @@ Nash_census <- Nash_census %>%
          pred_outcome = as.factor(case_when(probs >= 0.5 ~ 1,
                                             probs < 0.5 ~ 0)))
 
-cm <- confusionMatrix(Nash_census$pred_outcome, Nash_census$outcome,
+cm_nash <- confusionMatrix(Nash_census$pred_outcome, Nash_census$outcome,
                       positive = "1")
 
-cm_table <- cm$table
-cm_df <- as.data.frame(cm_table)
+cm_table_nash <- cm_nash$table
+cm_df_nash <- as.data.frame(cm_table_nash)
 
-rownames(cm_df) <- c("True Negative", "False Positive", 
+rownames(cm_df_nash) <- c("True Negative", "False Positive", 
                      "False Negative", "True Positive")
 
-gt(cm_df %>% 
+gt(cm_df_nash %>% 
      rownames_to_column()) %>% 
   fmt_number(columns = Freq, decimals = 0) %>% 
-  tab_header(title = md("**Confusion Matrix**")) %>%
+  tab_header(title = md("**Confusion Matrix** *for Nashville*")) %>%
   opt_align_table_header(align = "left") %>%
   cols_label(Freq = "Frequency")
 ```
 
-## Using Nashville model to predict change cluster in Chattanooga
-
 ```{r}
+Chatt_census <- Chatt_census %>% 
+  mutate(outcome = as.factor(chng_cluster),
+         probs = predict(nash_change_logit4, Chatt_census, type= "response"),
+         pred_outcome = as.factor(case_when(probs >= 0.5 ~ 1,
+                                            probs < 0.5 ~ 0)))
 
-chatt_change_logit <- glm(chng_cluster ~ MedHHInc_12+MedRent_12+ MedHUBuilt_12+ PubSNAP_12+ RenterOcc_12 + WhitePop_12 + BlackPop_rate_12 + HispLatPop_rate_12+  Grad_deg_rate_12 + PubTrans_commute_12 + Citizen_Ratio_12,
-                  family="binomial" (link="logit"), Chatt_census)
+cm_chatt <- confusionMatrix(Chatt_census$pred_outcome, Chatt_census$outcome,
+                      positive = "1")
 
-summary(chatt_change_logit)
+cm_table_chatt <- cm_chatt$table
+cm_df_chatt <- as.data.frame(cm_table_chatt)
 
-chatt_change_logit2 <- glm(chng_cluster ~ near_bus + n_crime_18 + n_pub_art,
-                  family="binomial" (link="logit"), Chatt_census)
+rownames(cm_df_chatt) <- c("True Negative", "False Positive", 
+                     "False Negative", "True Positive")
 
-summary(chatt_change_logit2)
-
-chatt_change_logit3 <- glm(chng_cluster ~ MedHHInc_12+ MedHUBuilt_12+ RenterOcc_12 + BlackPop_rate_12  + PubTrans_commute_12 + Citizen_Ratio_12 + near_bus + n_crime_18,
-                  family="binomial" (link="logit"), Chatt_census)
-
-summary(chatt_change_logit3)
-
-chatt_change_logit4 <- glm(chng_cluster ~ MedHHInc_12+ RenterOcc_12 + BlackPop_rate_12  + PubTrans_commute_12 + near_bus ,
-                  family="binomial" (link="logit"), Chatt_census)
-
-summary(chatt_change_logit4)
-
-
-```
-```{r}
-
-pR2(chatt_change_logit4)
-
-
-testProbs <- data.frame(Outcome = as.factor(Nash_census$chng_cluster),
-                        Probs = predict(chatt_change_logit4, Nash_census, type= "response"))
-
-
-
+gt(cm_df_chatt %>% 
+     rownames_to_column()) %>% 
+  fmt_number(columns = Freq, decimals = 0) %>% 
+  tab_header(title = md("**Confusion Matrix** *for Chattanooga*")) %>%
+  opt_align_table_header(align = "left") %>%
+  cols_label(Freq = "Frequency")
 ```
 
 ```{r}
 
-auc(testProbs$Outcome, testProbs$Probs)
+testProbs_chatt <- data.frame(Outcome = as.factor(Chatt_census$chng_cluster),
+                        Probs = predict(nash_change_logit4, Chatt_census, type= "response"))
 
-ggplot(testProbs, aes(d = as.numeric(Outcome), m = Probs)) +
+
+testProbs_nash <- data.frame(Outcome = as.factor(Nash_census$chng_cluster),
+                        Probs = predict(nash_change_logit4, Nash_census, type= "response"))
+
+
+roc_chatt <- ggplot(testProbs_chatt, aes(d = as.numeric(Outcome), m = Probs)) +
+  geom_roc(n.cuts = 50, labels = FALSE, colour = "#1f78b4") +
+  style_roc(theme = theme_grey) +
+  geom_abline(slope = 1, intercept = 0, size = 1.5, color = 'grey') +
+  labs(title = "ROC Curve: Chattanooga Model") +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold", margin = margin(b = 6)))
+
+roc_nash <- ggplot(testProbs_nash, aes(d = as.numeric(Outcome), m = Probs)) +
   geom_roc(n.cuts = 50, labels = FALSE, colour = "#1f78b4") +
   style_roc(theme = theme_grey) +
   geom_abline(slope = 1, intercept = 0, size = 1.5, color = 'grey') +
   labs(title = "ROC Curve: Nashville Model") +
   theme_minimal() +
   theme(plot.title = element_text(face = "bold", margin = margin(b = 6)))
+
+
+ggarrange(roc_nash, roc_chatt)
 
 ```
 
