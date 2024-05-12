@@ -564,270 +564,330 @@ Chatt_census19 <-
               .cols = all_of(acs_vars_names))
 
 Nash_census <- Nash_census12 %>%
+  filter(TotalPop_12 != 0) %>% 
   st_drop_geometry() %>% 
   left_join(Nash_census19, by = c("GEOID")) %>% 
   st_sf() %>% 
   mutate(chng_MedHHInc = MedHHInc_19 - MedHHInc_12,
          chng_MedRent = MedRent_19 - MedRent_12,
+         chng_MedHomeVal = MedHomeVal_19 - MedHomeVal_12,
          chng_PubSNAP_rate = PubSNAP_rate_19 - PubSNAP_rate_12,
          chng_RenterOcc_rate = RenterOcc_rate_19 - RenterOcc_rate_12,
          chng_WhitePop_rate = WhitePop_rate_19 - WhitePop_rate_12,
          chng_BlackPop_rate = BlackPop_rate_19 - BlackPop_rate_12,
          chng_HispLatPop_rate = HispLatPop_rate_19 - HispLatPop_rate_12,
-         chng_Grad_deg_rate_12 = Grad_deg_rate_19 - Grad_deg_rate_12,
+         chng_Grad_deg_rate = Grad_deg_rate_19 - Grad_deg_rate_12,
          chng_PubTrans_commute_ratio = PubTrans_commute_ratio_19 - PubTrans_commute_ratio_12,
-         chng_Citizen_Ratio = Citizen_Ratio_19 - Citizen_Ratio_12)
+         chng_Citizen_Ratio = Citizen_Ratio_19 - Citizen_Ratio_12,
+         chng_MedHUBuilt = MedHUBuilt_19 - MedHUBuilt_12)
   
 Chatt_census <- Chatt_census12 %>%
+  filter(TotalPop_12 != 0) %>% 
   st_drop_geometry() %>% 
   left_join(Chatt_census19, by = c("GEOID")) %>% 
   st_sf() %>% 
   mutate(chng_MedHHInc = MedHHInc_19 - MedHHInc_12,
          chng_MedRent = MedRent_19 - MedRent_12,
+         chng_MedHomeVal = MedHomeVal_19 - MedHomeVal_12,
          chng_PubSNAP_rate = PubSNAP_rate_19 - PubSNAP_rate_12,
          chng_RenterOcc_rate = RenterOcc_rate_19 - RenterOcc_rate_12,
          chng_WhitePop_rate = WhitePop_rate_19 - WhitePop_rate_12,
          chng_BlackPop_rate = BlackPop_rate_19 - BlackPop_rate_12,
          chng_HispLatPop_rate = HispLatPop_rate_19 - HispLatPop_rate_12,
-         chng_Grad_deg_rate_12 = Grad_deg_rate_19 - Grad_deg_rate_12,
+         chng_Grad_deg_rate = Grad_deg_rate_19 - Grad_deg_rate_12,
          chng_PubTrans_commute_ratio = PubTrans_commute_ratio_19 - PubTrans_commute_ratio_12,
-         chng_Citizen_Ratio = Citizen_Ratio_19 - Citizen_Ratio_12)
+         chng_Citizen_Ratio = Citizen_Ratio_19 - Citizen_Ratio_12,
+         chng_MedHUBuilt = MedHUBuilt_19 - MedHUBuilt_12)
 
 options(tigris_use_cache = TRUE)
+```
+
+```{r spatial_vars}
+# within 0.25 miles of a bus route
+
+nash_bus_rts <- read.csv("Data/MTA_Nash_Routes.csv") %>% 
+  st_as_sf(wkt = "the_geom", crs = 4269) %>% 
+  st_transform('ESRI:102271')
+
+chat_bus_rts <- read.csv("Data/CARTA_Routes.csv") %>% 
+  st_as_sf(wkt = "the_geom", crs = 4269) %>% 
+  st_transform('ESRI:102271')
+
+nash_bus_buffer <- st_buffer(nash_bus_rts, 1320) %>% 
+  st_union()
+
+chat_bus_buffer <- st_buffer(chat_bus_rts, 1320) %>% 
+  st_union()
+
+Nash_census <- 
+  rbind(
+    st_centroid(Nash_census)[nash_bus_buffer,] %>%
+      st_drop_geometry() %>%
+      left_join(Nash_census) %>%
+      st_sf() %>%
+      mutate(near_bus = 1),
+    st_centroid(Nash_census)[nash_bus_buffer, op = st_disjoint] %>%
+      st_drop_geometry() %>%
+      left_join(Nash_census) %>%
+      st_sf() %>%
+      mutate(near_bus = 0))
+
+Chatt_census <- 
+  rbind(
+    st_centroid(Chatt_census)[chat_bus_buffer,] %>%
+      st_drop_geometry() %>%
+      left_join(Chatt_census) %>%
+      st_sf() %>%
+      mutate(near_bus = 1),
+    st_centroid(Chatt_census)[chat_bus_buffer, op = st_disjoint] %>%
+      st_drop_geometry() %>%
+      left_join(Chatt_census) %>%
+      st_sf() %>%
+      mutate(near_bus = 0))
+
+# number of public art pieces
+
+nash_pub_art <- read.csv("Data/nash_art_public_space.csv") %>% 
+  filter(!is.na(Latitude) | !is.na(Longitude)) %>% 
+  st_as_sf(coords = c(x = "Longitude", y = "Latitude"), crs = 4269) %>% 
+  st_transform('ESRI:102271')
+
+chat_pub_art <- read.csv("Data/chat_art_public_space.csv") %>% 
+  filter(!is.na(Latitude) | !is.na(Longitude)) %>% 
+  st_as_sf(coords = c(x = "Longitude", y = "Latitude"), crs = 4269) %>% 
+  st_transform('ESRI:102271')
+
+Nash_census <- Nash_census %>% 
+  mutate(n_pub_art = lengths(st_intersects(., nash_pub_art)))
+
+Chatt_census <- Chatt_census %>% 
+  mutate(n_pub_art = lengths(st_intersects(., chat_pub_art)))
+
+# number of crimes
+
+nash_crime <- read.csv("Data/nash_crime.csv") %>% 
+  filter(!grepl("2024|2023|2022|2021|2020", Incident.Occurred))
+
+chat_crime <- read.csv("Data/chat_crime.csv")
+  
+nash_violent_crime_19 <- nash_crime %>% 
+  filter(grepl("2019", Incident.Occurred) &
+           Weapon.Description != "Unarmed" &
+           (!is.na(Latitude) | !is.na(Longitude))) %>%
+  st_as_sf(coords = c(x = "Longitude", y = "Latitude"), crs = 4269) %>% 
+  st_transform('ESRI:102271')
+
+nash_violent_crime_18 <- nash_crime %>% 
+  filter(grepl("2018", Incident.Occurred) &
+           Weapon.Description != "Unarmed" &
+           (!is.na(Latitude) | !is.na(Longitude))) %>%
+  st_as_sf(coords = c(x = "Longitude", y = "Latitude"), crs = 4269) %>% 
+  st_transform('ESRI:102271')
+
+chat_violent_crime_19 <- chat_crime %>% 
+  filter(grepl("2019", Date_Incident) &
+           Incident_Description != "Robbery" & 
+           (!is.na(Latitude) | !is.na(Longitude))) %>%
+  st_as_sf(coords = c(x = "Longitude", y = "Latitude"), crs = 4269) %>% 
+  st_transform('ESRI:102271')
+
+chat_violent_crime_18 <- chat_crime %>% 
+  filter(grepl("2018", Date_Incident) &
+           Incident_Description != "Robbery" & 
+           (!is.na(Latitude) | !is.na(Longitude))) %>%
+  st_as_sf(coords = c(x = "Longitude", y = "Latitude"), crs = 4269) %>% 
+  st_transform('ESRI:102271')
+
+Nash_census <- Nash_census %>% 
+  mutate(n_crime_19 = lengths(st_intersects(., nash_violent_crime_19)),
+         n_crime_18 = lengths(st_intersects(., nash_violent_crime_18)),
+         pct_chng_crime = (n_crime_19 - n_crime_18) / n_crime_18)
+
+Chatt_census <- Chatt_census %>% 
+  mutate(n_crime_19 = lengths(st_intersects(., chat_violent_crime_19)),
+         n_crime_18 = lengths(st_intersects(., chat_violent_crime_18)),
+         pct_chng_crime = (n_crime_19 - n_crime_18) / n_crime_18)
 ```
 
 ## Census Tract Cluster Analysis
 
 ```{r assigning clusters}
+# set seed and cluster number
 
-#### Chattanooga 
+set.seed(123)
 
-Chatt_census <- read.csv("Chatt_census12.csv")
+k <- 4
 
+#### Chattanooga
 
 #Scaling the data (code from here: https://stackoverflow.com/questions/15215457/standardize-data-columns-in-r)
-Chatt_scaled <- Chatt_census %>% 
-  mutate(PubSNAP_rate = PubSNAP/TotalPop, 
-         RenterOcc_rate = RenterOcc/TotalPop, 
-         WhitePop_rate = WhitePop / TotalPop, 
-         Grad_deg_rate = Grad_deg/TotalPop, 
-         PubTrans_commute_ratio = PubTrans_commute/Drive_commute, 
-         Citizen_Ratio = NotUS_cit/US_cit) %>% 
-  select(c(GEOID,MedHHInc, MedHomeVal, MedHUBuilt, PubSNAP_rate, RenterOcc_rate,
-           WhitePop_rate, Grad_deg_rate, PubTrans_commute_ratio, Citizen_Ratio)) %>% 
-  mutate_at(c(2:10), ~(scale(.) %>% 
+
+Chatt_scaled <- Chatt_census %>%
+  select(c(GEOID, MedHHInc_19, MedHomeVal_19, RenterOcc_rate_19, 
+           chng_MedHHInc, chng_MedHomeVal, chng_RenterOcc_rate,
+           WhitePop_rate_19, BlackPop_rate_19, HispLatPop_rate_19,
+           chng_WhitePop_rate, chng_BlackPop_rate, chng_HispLatPop_rate,
+           Grad_deg_rate_19, chng_Grad_deg_rate,
+           PubSNAP_rate_19, chng_PubSNAP_rate)) %>% 
+  st_drop_geometry() %>% 
+  mutate_at(c(2:17), ~(scale(.) %>% 
                          as.vector)) %>% 
-  na.omit()
   
+  na.omit()
 
-#Identifying number of clusters
-
-set.seed(123)
-
-km.out <- kmeans(Chatt_scaled, centers = 20, nstart = 20)
-km.out
-
-#### Scree Plot, from MNR / PBN ####
-
-# First, identify the number of clusters (k)
-# "Elbow" method
-mydata <- Chatt_scaled
-wss <- (nrow(mydata)-1)*sum(apply(mydata,2,var))
-for (i in 2:15) wss[i] <- sum(kmeans(mydata,
-                                     centers=i)$withinss)
-plot(1:15, wss, type="b", xlab="Number of Clusters",
-     ylab="Within cluster sum of squares",
-     main="Assessing the Optimal Number of Clusters",
-     pch=20, cex=2)
-abline(v=4, lty="dashed", lwd=2, col="red")
-
-### 4 clusters are best
-k <- 4
-set.seed(123)
-# Build model with k clusters: km.out
-km.out <- kmeans(Chatt_scaled, centers = k, nstart = 20)
+km.out_Chatt <- kmeans(Chatt_scaled, centers = k, nstart = 20)
 
 ##Assigning Cluster IDs
-Chatt_scaled$cluster_id <- factor(km.out$cluster)
 
-ggplot(Chatt_scaled, 
-       aes(x= MedHHInc, y= WhitePop_rate, color = cluster_id))+ 
-  geom_point()
+Chatt_scaled$cluster_id <- factor(km.out_Chatt$cluster)
 
-chatt_join <- Chatt_scaled %>% 
-  select(c(GEOID, cluster_id)) 
-
-
-Chatt_census12 <- 
-  get_acs(geography = "tract", 
-          variables = c("B25026_001E"),   year=2012, state=47, county=065, 
-          geometry=TRUE, output="wide"
-          ) %>% 
-  mutate(GEOID = as.numeric(GEOID))
-
-Chatt_census_clusters <- Chatt_census12 %>% 
-  left_join(chatt_join) 
-
-tm_shape(Chatt_census12)+ 
-  tm_polygons()
+Chatt_census <- Chatt_census %>% 
+  left_join(Chatt_scaled %>% 
+              select(GEOID, cluster_id),
+            by = c("GEOID")) %>% 
+  mutate(chng_cluster = case_when(cluster_id == "3" ~ 1,
+                                  TRUE ~ 0))
 
 #### Nashville 
 
-Nash_census <- read.csv("Nash_census12.csv")
+Nash_scaled <- Nash_census %>%
+  select(c(GEOID, MedHHInc_19, MedHomeVal_19, RenterOcc_rate_19, 
+           chng_MedHHInc, chng_MedHomeVal, chng_RenterOcc_rate,
+           WhitePop_rate_19, BlackPop_rate_19, HispLatPop_rate_19,
+           chng_WhitePop_rate, chng_BlackPop_rate, chng_HispLatPop_rate,
+           Grad_deg_rate_19, chng_Grad_deg_rate,
+           PubSNAP_rate_19, chng_PubSNAP_rate)) %>% 
+  st_drop_geometry() %>% 
+  mutate_at(c(2:17), ~(scale(.) %>% 
+                         as.vector)) %>% 
+  
+  na.omit()
 
-
-#Scaling the data (code from here: https://stackoverflow.com/questions/15215457/standardize-data-columns-in-r)
-Nash_scaled <- Nash_census %>% 
-  mutate(PubSNAP_rate = PubSNAP/TotalPop, 
-         RenterOcc_rate = RenterOcc/TotalPop, 
-         WhitePop_rate = WhitePop / TotalPop, 
-         Grad_deg_rate = Grad_deg/TotalPop, 
-         PubTrans_commute_ratio = PubTrans_commute/Drive_commute, 
-         Citizen_Ratio = NotUS_cit/US_cit) %>% 
-  select(c(GEOID,MedHHInc, MedHomeVal, MedHUBuilt, PubSNAP_rate, RenterOcc_rate,
-           WhitePop_rate, Grad_deg_rate, PubTrans_commute_ratio, Citizen_Ratio)) %>% 
-  na.omit() %>% 
-  mutate_at(c(2:10), ~(scale(.) %>% 
-                         as.vector))
-
-
-#Identifying number of clusters
-
-set.seed(123)
-
-km.out <- kmeans(Nash_scaled, centers = 20, nstart = 20)
-km.out
-
-#### Scree Plot, from MNR / PBN ####
-
-# First, identify the number of clusters (k)
-# "Elbow" method
-mydata <- Nash_scaled
-wss <- (nrow(mydata)-1)*sum(apply(mydata,2,var))
-for (i in 2:15) wss[i] <- sum(kmeans(mydata,
-                                     centers=i)$withinss)
-plot(1:15, wss, type="b", xlab="Number of Clusters",
-     ylab="Within cluster sum of squares",
-     main="Assessing the Optimal Number of Clusters",
-     pch=20, cex=2)
-abline(v=4, lty="dashed", lwd=2, col="red")
-
-### 4 clusters are best
 k <- 4
 set.seed(123)
-# Build model with k clusters: km.out
-km.out <- kmeans(Nash_scaled, centers = k, nstart = 20)
+
+km.out_Nash <- kmeans(Nash_scaled, centers = k, nstart = 20)
 
 ##Assigning Cluster IDs
-Nash_scaled$cluster_id <- factor(km.out$cluster)
 
-ggplot(Nash_scaled, 
-       aes(x= MedHHInc, y= WhitePop_rate, color = cluster_id))+ 
-  geom_point()
+Nash_scaled$cluster_id <- factor(km.out_Nash$cluster)
 
-nash_join <- Nash_scaled %>% 
-  select(c(GEOID, cluster_id))
+Nash_census <- Nash_census %>% 
+  left_join(Nash_scaled %>% 
+              select(GEOID, cluster_id),
+            by = c("GEOID")) %>% 
+  mutate(chng_cluster = case_when(cluster_id == "4" ~ 1,
+                                  TRUE ~ 0))
 
+Nash_clusters <- Nash_census %>% 
+  select(MedHHInc_19, MedHomeVal_19, RenterOcc_rate_19, 
+           chng_MedHHInc, chng_MedHomeVal, chng_RenterOcc_rate,
+           WhitePop_rate_19, BlackPop_rate_19, HispLatPop_rate_19,
+           chng_WhitePop_rate, chng_BlackPop_rate, chng_HispLatPop_rate,
+           Grad_deg_rate_19, chng_Grad_deg_rate,
+           PubSNAP_rate_19, chng_PubSNAP_rate, cluster_id) %>% 
+  st_drop_geometry() %>% 
+  group_by(cluster_id) %>% 
+  summarise_all("mean") %>% 
+  na.omit()
 
-Nash_census19 <- 
-  get_acs(geography = "tract", 
-          variables = c("B25026_001E"), 
-          year=2019, state=47, county=037, 
-          geometry=TRUE, output="wide") %>% 
-  mutate(GEOID = as.numeric(GEOID))
-
-Nash_census_clusters <- Nash_census19 %>% 
-  left_join(nash_join) 
-
-tm_shape(Nash_census_clusters)+ 
-  tm_polygons(fill = "cluster_id")
+gt(Nash_clusters)
 
 ```
 
 
-```{r chattanooga summary, results='markup'}
-
-chatt_cluster_summary <- Chatt_census_clusters %>% 
+```{r Chatt_cluster_summary, results = 'markup'}
+Chatt_clusters <- Chatt_census %>% 
+  select(MedHHInc_19, MedHomeVal_19, RenterOcc_rate_19, 
+           chng_MedHHInc, chng_MedHomeVal, chng_RenterOcc_rate,
+           WhitePop_rate_19, BlackPop_rate_19, HispLatPop_rate_19,
+           chng_WhitePop_rate, chng_BlackPop_rate, chng_HispLatPop_rate,
+           Grad_deg_rate_19, chng_Grad_deg_rate,
+           PubSNAP_rate_19, chng_PubSNAP_rate, cluster_id) %>% 
   st_drop_geometry() %>% 
-  select(c(GEOID, cluster_id)) %>% 
-  right_join(Chatt_census) %>% 
-  select(c(cluster_id, MedHHInc, TotalPop, MedRent, WhitePop, BlackPop, HispLatPop, Bach_deg,Grad_deg, PubTrans_commute)) %>% 
-  mutate(n_clust = 1) %>%  
   group_by(cluster_id) %>% 
-  summarise(across(c(TotalPop,WhitePop, BlackPop, HispLatPop, Bach_deg,Grad_deg, PubTrans_commute, n_clust), sum), 
-            med_inc = mean(MedHHInc), 
-            med_rent = mean(MedRent)) %>% 
-mutate(
-white_rate = WhitePop/TotalPop, 
-         black_rate = BlackPop/TotalPop, 
-         hisp_rate = HispLatPop/TotalPop, 
-         deg_rate = (Bach_deg+Grad_deg)/TotalPop, 
-         trans_com_rate = PubTrans_commute / TotalPop) %>% 
-  select(c(cluster_id, n_clust,med_inc, med_rent, white_rate, black_rate, hisp_rate, deg_rate, trans_com_rate)) %>% 
+  summarise_all("mean") %>% 
   na.omit()
 
-
-chatt_cluster_summary %>% 
+Chatt_clusters %>% 
   gt() %>% 
-  fmt_percent(columns = 5:9, 
+  fmt_percent(columns = c(RenterOcc_rate_19, chng_RenterOcc_rate,
+                          WhitePop_rate_19, BlackPop_rate_19, HispLatPop_rate_19,
+                          chng_WhitePop_rate, chng_BlackPop_rate, 
+                          chng_HispLatPop_rate, Grad_deg_rate_19, 
+                          chng_Grad_deg_rate, PubSNAP_rate_19, 
+                          chng_PubSNAP_rate,), 
               decimals = 1) %>% 
-  fmt_currency(columns = 3:4, 
+  fmt_currency(columns = c(MedHHInc_19, MedHomeVal_19, chng_MedHHInc, 
+                           chng_MedHomeVal), 
                decimals = 0) %>% 
-  cols_label(cluster_id = "Cluster", 
-             n_clust = "Count", 
-             med_inc = "Median Income",
-              med_rent = "Median Rent",
-             white_rate = "White", 
-             black_rate = "Black", 
-             hisp_rate = "Hispanic", 
-             deg_rate = "College Degree", 
-             trans_com_rate = "Commute by Transit") %>%
+  cols_label(cluster_id = "Cluster",
+             MedHHInc_19 = "Median HH Income",
+             MedHomeVal_19 = "Median Home Value",
+             RenterOcc_rate_19 = "% Renters",
+             chng_MedHHInc = "Change Median Income",
+             chng_MedHomeVal = "Change Home Values",
+             chng_RenterOcc_rate = "Change % Renters",
+             WhitePop_rate_19 = "% White",
+             BlackPop_rate_19 = "% Black", 
+             HispLatPop_rate_19 = "% Hispanic or Latino",
+             chng_WhitePop_rate = "Change % White", 
+             chng_BlackPop_rate = "Change % Black", 
+             chng_HispLatPop_rate = "Change % Hispanic or Latino",
+             Grad_deg_rate_19 = "% Grad Degree", 
+             chng_Grad_deg_rate = "Change % Grad Degree",
+             PubSNAP_rate_19 = "% Recieiving SNAP", 
+             chng_PubSNAP_rate = "Change % Recieiving SNAP") %>%
   cols_width(3:9 ~ px(200)) %>%
-  tab_header(title = "Summary of Cluster Characteristics for Chattanooga",
+  tab_header(title = "Summary of Cluster Characteristics for Chattanooga in 2019 & Change from 2012-19",
              subtitle = "Source: 2012 ACS 5-year Estimate") %>% 
   gt_theme_538()
-
 ```
 
-```{r nashville summary, results='markup'}
-
-nash_cluster_summary <- Nash_census_clusters %>% 
+```{r Nash_cluster_summary, results = 'markup'}
+Nash_clusters <- Nash_census %>% 
+  select(MedHHInc_19, MedHomeVal_19, RenterOcc_rate_19, 
+           chng_MedHHInc, chng_MedHomeVal, chng_RenterOcc_rate,
+           WhitePop_rate_19, BlackPop_rate_19, HispLatPop_rate_19,
+           chng_WhitePop_rate, chng_BlackPop_rate, chng_HispLatPop_rate,
+           Grad_deg_rate_19, chng_Grad_deg_rate,
+           PubSNAP_rate_19, chng_PubSNAP_rate, cluster_id) %>% 
   st_drop_geometry() %>% 
-  select(c(GEOID, cluster_id)) %>% 
-  right_join(Nash_census) %>% 
-  select(c(cluster_id, MedHHInc, TotalPop, MedRent, WhitePop, BlackPop, HispLatPop, Bach_deg,Grad_deg, PubTrans_commute)) %>% 
-  mutate(n_clust = 1) %>%  
   group_by(cluster_id) %>% 
-  summarise(across(c(TotalPop,WhitePop, BlackPop, HispLatPop, Bach_deg,Grad_deg, PubTrans_commute, n_clust), sum), 
-            med_inc = mean(MedHHInc), 
-            med_rent = mean(MedRent, na.rm=T)) %>% 
-mutate(
-white_rate = WhitePop/TotalPop, 
-         black_rate = BlackPop/TotalPop, 
-         hisp_rate = HispLatPop/TotalPop, 
-         deg_rate = (Bach_deg+Grad_deg)/TotalPop, 
-         trans_com_rate = PubTrans_commute / TotalPop) %>% 
-  select(c(cluster_id, n_clust,med_inc, med_rent, white_rate, black_rate, hisp_rate, deg_rate, trans_com_rate)) %>%  
+  summarise_all("mean") %>% 
   na.omit()
 
-nash_cluster_summary %>% 
+Nash_clusters %>% 
   gt() %>% 
-  fmt_percent(columns = 5:9, 
+  fmt_percent(columns = c(RenterOcc_rate_19, chng_RenterOcc_rate,
+                          WhitePop_rate_19, BlackPop_rate_19, HispLatPop_rate_19,
+                          chng_WhitePop_rate, chng_BlackPop_rate, 
+                          chng_HispLatPop_rate, Grad_deg_rate_19, 
+                          chng_Grad_deg_rate, PubSNAP_rate_19, 
+                          chng_PubSNAP_rate,), 
               decimals = 1) %>% 
-  fmt_currency(columns = 3:4, 
+  fmt_currency(columns = c(MedHHInc_19, MedHomeVal_19, chng_MedHHInc, 
+                           chng_MedHomeVal), 
                decimals = 0) %>% 
-  cols_label(cluster_id = "Cluster", 
-             n_clust = "Count", 
-             med_inc = "Median Income",
-              med_rent = "Median Rent",
-             white_rate = "White", 
-             black_rate = "Black", 
-             hisp_rate = "Hispanic", 
-             deg_rate = "College Degree", 
-             trans_com_rate = "Commute by Transit") %>%
+  cols_label(cluster_id = "Cluster",
+             MedHHInc_19 = "Median HH Income",
+             MedHomeVal_19 = "Median Home Value",
+             RenterOcc_rate_19 = "% Renters",
+             chng_MedHHInc = "Change Median Income",
+             chng_MedHomeVal = "Change Home Values",
+             chng_RenterOcc_rate = "Change % Renters",
+             WhitePop_rate_19 = "% White",
+             BlackPop_rate_19 = "% Black", 
+             HispLatPop_rate_19 = "% Hispanic or Latino",
+             chng_WhitePop_rate = "Change % White", 
+             chng_BlackPop_rate = "Change % Black", 
+             chng_HispLatPop_rate = "Change % Hispanic or Latino",
+             Grad_deg_rate_19 = "% Grad Degree", 
+             chng_Grad_deg_rate = "Change % Grad Degree",
+             PubSNAP_rate_19 = "% Recieiving SNAP", 
+             chng_PubSNAP_rate = "Change % Recieiving SNAP") %>%
   cols_width(3:9 ~ px(200)) %>%
-  tab_header(title = "Summary of Cluster Characteristics for Nashville",
+  tab_header(title = "Summary of Cluster Characteristics for Chattanooga in 2019 & Change from 2012-19",
              subtitle = "Source: 2012 ACS 5-year Estimate") %>% 
   gt_theme_538()
-
 ```
