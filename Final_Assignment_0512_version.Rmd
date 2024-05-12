@@ -1108,7 +1108,13 @@ Chatt_crime_map <- ggplot() +
   theme(legend.position = "bottom",
         legend.text = element_text(angle = 45, hjust = 1))
 
-grid.arrange(Nash_crime_map, Chatt_crime_map, ncol = 2)
+crime_map <- grid.arrange(Nash_crime_map, Chatt_crime_map, ncol = 2)
+
+ggsave(filename = "Exports/crime_map.png",
+       plot = crime_map,
+       width = 8,
+       height = 6,
+       units = "in")
 ```
 
 ## Access to transit
@@ -1139,6 +1145,38 @@ Nash_bus_map <- ggplot() +
                    unit_category = "imperial") +
   theme_void() +
   theme(legend.position = "bottom")
+
+Chatt_census <- Chatt_census %>% 
+  mutate(near_bus_yn = case_when(near_bus == 1 ~ "Yes",
+                                 near_bus == 0 ~ "No"))
+
+Chat_bus_map <- ggplot() +
+  geom_sf(data = chat_county,
+          fill = "#f7f7f7",
+          color = NA) +
+  geom_sf(data = Chatt_census,
+          aes(fill = near_bus_yn),
+          color = "#d9d9d9") +
+  scale_fill_manual(name = "Within 0.25 miles of bus stop",
+                    values = c("#fed976", "#4292c6"),
+                    labels = c("No", "Yes"),
+                    na.value = "#f7f7f7") +
+  geom_sf(data = chat_county,
+          fill = "transparent",
+          color = "#525252",
+          lwd = 0.3,
+          lty = "longdash") +
+  labs(title = "Chattanooga (Hamilton County)") +
+  theme_void() +
+  theme(legend.position = "bottom")
+
+bus_map <- grid.arrange(Nash_bus_map, Chat_bus_map, ncol = 2)
+
+ggsave(filename = "Exports/bus_map.png",
+       plot = bus_map,
+       width = 8,
+       height = 6.5,
+       units = "in")
 
 ```
 
