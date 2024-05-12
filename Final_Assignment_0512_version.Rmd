@@ -22,6 +22,7 @@ library(tmap)
 library(tigris)
 library(webshot2)
 library(ggcorrplot)
+library(ggspatial)
 library(caret)
 library(knitr) 
 library(pscl)
@@ -30,11 +31,28 @@ library(pROC)
 library(lubridate)
 library(car)
 library(psych)
+library(gridExtra)
 ```
 
 
 ```{r Get ACS 2012 data, results='hide'}
 inflation_factor <- 1.11 # 2012 dollars to 2019 dollars
+
+nash_county <- get_acs(geography = "county",
+                       year=2012,
+                       state=47,
+                       county=037, 
+                       geometry=TRUE,
+                       variables = "B25026_001E") %>% 
+  st_transform('ESRI:102271')
+
+chat_county <- get_acs(geography = "county",
+                       year=2012,
+                       state=47,
+                       county=065, 
+                       geometry=TRUE,
+                       variables = "B25026_001E") %>% 
+  st_transform('ESRI:102271')
 
 acs_vars_names <- c("TotalPop", "MedHHInc", "MedRent", "MedHomeVal",
          "VacHU",
@@ -720,6 +738,45 @@ Chatt_census <- Chatt_census %>%
   mutate(n_crime_19 = lengths(st_intersects(., chat_violent_crime_19)),
          n_crime_18 = lengths(st_intersects(., chat_violent_crime_18)),
          pct_chng_crime = (n_crime_19 - n_crime_18) / n_crime_18)
+
+# 311 calls
+
+nash_311 <- read.csv("Data/nash_311.csv")
+
+chat_311 <- read.csv("Data/chat_311.csv",
+                     na.strings = c(""," ","NA"))
+
+nash_311_19 <- nash_311 %>% 
+  filter(grepl("2019", Date...Time.Opened) &
+           (!is.na(Latitude) | !is.na(Longitude))) %>%
+  st_as_sf(coords = c(x = "Longitude", y = "Latitude"), crs = 4269) %>% 
+  st_transform('ESRI:102271')
+
+nash_311_18 <- nash_311 %>% 
+  filter(grepl("2018", Date...Time.Opened) &
+           (!is.na(Latitude) | !is.na(Longitude))) %>%
+  st_as_sf(coords = c(x = "Longitude", y = "Latitude"), crs = 4269) %>% 
+  st_transform('ESRI:102271')
+
+chat_311_19 <- chat_311 %>% 
+  filter(grepl("2019", Created.Date) & !is.na(PublicLocation)) %>%
+  st_as_sf(wkt = "PublicLocation", crs = 4269) %>% 
+  st_transform('ESRI:102271')
+
+chat_311_18 <- chat_311 %>% 
+  filter(grepl("2018", Created.Date) & !is.na(PublicLocation)) %>%
+  st_as_sf(wkt = "PublicLocation", crs = 4269) %>% 
+  st_transform('ESRI:102271')
+
+Nash_census <- Nash_census %>% 
+  mutate(n_311_19 = lengths(st_intersects(., nash_311_19)),
+         n_311_18 = lengths(st_intersects(., nash_311_18)),
+         pct_chng_311 = (n_311_19 - n_311_18) / n_311_18)
+
+Chatt_census <- Chatt_census %>% 
+  mutate(n_311_19 = lengths(st_intersects(., chat_311_19)),
+         n_311_18 = lengths(st_intersects(., chat_311_18)),
+         pct_chng_311 = (n_311_19 - n_311_18) / n_311_18)
 ```
 
 ## Census Tract Cluster Analysis
@@ -855,6 +912,11 @@ Chatt_clusters %>%
   gt_theme_538()
 ```
 
+```{r}
+
+```
+
+
 ```{r Nash_cluster_summary, results = 'markup'}
 Nash_clusters <- Nash_census %>% 
   select(MedHHInc_19, MedHomeVal_19, RenterOcc_rate_19, 
@@ -914,7 +976,7 @@ vars_corr <- Nash_census %>%
            chng_WhitePop_rate, chng_BlackPop_rate, chng_HispLatPop_rate,
            Grad_deg_rate_19, chng_Grad_deg_rate,
            PubSNAP_rate_19, chng_PubSNAP_rate,
-           near_bus, n_pub_art, pct_chng_crime) %>% 
+           near_bus, n_pub_art, pct_chng_crime, pct_chng_311) %>% 
   na.omit()
 
 vars_corr <- round(cor(vars_corr), 2)
@@ -939,7 +1001,8 @@ corr_axis_labs <- c(MedHHInc_19 = "Median HH Income",
              chng_PubSNAP_rate = "Change % Recieiving SNAP",
              near_bus = "Within .25 mi of bus",
              n_pub_art = "Public art pieces",
-             pct_chng_crime = "% Change in Crime")
+             pct_chng_crime = "Annual % Change Crime",
+             pct_chng_311 = "Annual % Change 311")
 
 ggcorrplot(vars_corr, type = "lower", hc.order = TRUE, p.mat = p.mat, insig = "blank") +
   scale_x_discrete(labels = corr_axis_labs) +
@@ -947,6 +1010,134 @@ ggcorrplot(vars_corr, type = "lower", hc.order = TRUE, p.mat = p.mat, insig = "b
   theme(axis.text.x = element_text(size = 8),
         axis.text.y = element_text(size = 8),
         panel.background = element_rect(fill = "#f0f0f0", color = "#ffffff", linewidth = 2))
+```
+
+# Mapping variables of interest
+
+## Cluster IDs
+
+```{r}
+Nash_cluster_map <- ggplot() +
+  geom_sf(data = nash_county,
+          fill = "#f7f7f7",
+          color = NA) +
+  geom_sf(data = Nash_census,
+          aes(fill = cluster_id),
+          color = "#d9d9d9") +
+  scale_fill_brewer(name = "Cluster",
+                    type = "qual",
+                    palette = "Set3",
+                    na.value = "#f7f7f7") +
+  geom_sf(data = nash_county,
+          fill = "transparent",
+          color = "#525252",
+          lwd = 0.3,
+          lty = "longdash") +
+  theme_void()
+
+Chatt_cluster_map <- ggplot() +
+  geom_sf(data = chat_county,
+          fill = "#f7f7f7",
+          color = NA) +
+  geom_sf(data = Chatt_census,
+          aes(fill = cluster_id),
+          color = "#d9d9d9") +
+  scale_fill_brewer(name = "Cluster",
+                    type = "qual",
+                    palette = "Set3",
+                    na.value = "#f7f7f7") +
+  geom_sf(data = chat_county,
+          fill = "transparent",
+          color = "#525252",
+          lwd = 0.3,
+          lty = "longdash") +
+  theme_void()
+
+grid.arrange(Nash_cluster_map, Chatt_cluster_map, ncol = 2)
+```
+
+## Crime
+
+```{r}
+Nash_crime_map <- ggplot() +
+  geom_sf(data = nash_county,
+          fill = "#f7f7f7",
+          color = NA) +
+  geom_sf(data = Nash_census,
+          aes(fill = pct_chng_crime),
+          color = "#d9d9d9") +
+  scale_fill_distiller(name = "Annual % Change in Crime",
+                       type = "div",
+                       labels = scales::label_percent(),
+                       palette = "RdBu",
+                       direction = -1,
+                       na.value = "#f7f7f7") +
+  geom_sf(data = nash_county,
+          fill = "transparent",
+          color = "#525252",
+          lwd = 0.3,
+          lty = "longdash") +
+  labs(title = "Nashville (Davidson County)") +
+  annotation_scale(location = "bl",
+                   unit_category = "imperial") +
+  theme_void() +
+  theme(legend.position = "bottom")
+
+Chatt_crime_map <- ggplot() +
+  geom_sf(data = chat_county,
+          fill = "#f7f7f7",
+          color = NA) +
+  geom_sf(data = Chatt_census,
+          aes(fill = pct_chng_crime),
+          color = "#d9d9d9") +
+  scale_fill_distiller(name = "Annual % Change in Crime",
+                       type = "div",
+                       labels = scales::label_percent(),
+                       palette = "RdBu",
+                       direction = -1,
+                       na.value = "#f7f7f7") +
+  geom_sf(data = chat_county,
+          fill = "transparent",
+          color = "#525252",
+          lwd = 0.3,
+          lty = "longdash") +
+  labs(title = "Chattanooga (Hamilton County)") +
+  theme_void() +
+  theme(legend.position = "bottom",
+        legend.text = element_text(angle = 45, hjust = 1))
+
+grid.arrange(Nash_crime_map, Chatt_crime_map, ncol = 2)
+```
+
+## Access to transit
+
+```{r}
+Nash_census <- Nash_census %>% 
+  mutate(near_bus_yn = case_when(near_bus == 1 ~ "Yes",
+                                 near_bus == 0 ~ "No"))
+
+Nash_bus_map <- ggplot() +
+  geom_sf(data = nash_county,
+          fill = "#f7f7f7",
+          color = NA) +
+  geom_sf(data = Nash_census,
+          aes(fill = near_bus_yn),
+          color = "#d9d9d9") +
+  scale_fill_manual(name = "Within 0.25 miles of bus stop",
+                    values = c("#fed976", "#4292c6"),
+                    labels = c("No", "Yes"),
+                    na.value = "#f7f7f7") +
+  geom_sf(data = nash_county,
+          fill = "transparent",
+          color = "#525252",
+          lwd = 0.3,
+          lty = "longdash") +
+  labs(title = "Nashville (Davidson County)") +
+  annotation_scale(location = "bl",
+                   unit_category = "imperial") +
+  theme_void() +
+  theme(legend.position = "bottom")
+
 ```
 
 
