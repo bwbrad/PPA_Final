@@ -21,13 +21,15 @@ library(RColorBrewer)
 library(tmap)
 library(tigris)
 library(webshot2)
-
+library(ggcorrplot)
 library(caret)
 library(knitr) 
 library(pscl)
 library(plotROC)
 library(pROC)
 library(lubridate)
+library(car)
+library(psych)
 ```
 
 
@@ -775,9 +777,6 @@ Nash_scaled <- Nash_census %>%
   
   na.omit()
 
-k <- 4
-set.seed(123)
-
 km.out_Nash <- kmeans(Nash_scaled, centers = k, nstart = 20)
 
 ##Assigning Cluster IDs
@@ -852,7 +851,7 @@ Chatt_clusters %>%
              chng_PubSNAP_rate = "Change % Recieiving SNAP") %>%
   cols_width(3:9 ~ px(200)) %>%
   tab_header(title = "Summary of Cluster Characteristics for Chattanooga in 2019 & Change from 2012-19",
-             subtitle = "Source: 2012 ACS 5-year Estimate") %>% 
+             subtitle = "Source: 2012 & 2019 ACS 5-year Estimate") %>% 
   gt_theme_538()
 ```
 
@@ -899,12 +898,98 @@ Nash_clusters %>%
              PubSNAP_rate_19 = "% Recieiving SNAP", 
              chng_PubSNAP_rate = "Change % Recieiving SNAP") %>%
   cols_width(3:9 ~ px(200)) %>%
-  tab_header(title = "Summary of Cluster Characteristics for Chattanooga in 2019 & Change from 2012-19",
-             subtitle = "Source: 2012 ACS 5-year Estimate") %>% 
+  tab_header(title = "Summary of Cluster Characteristics for Nashville in 2019 & Change from 2012-19",
+             subtitle = "Source: 2012 & 2019 ACS 5-year Estimate") %>% 
   gt_theme_538()
 ```
 
-## Logit models to predict change cluster in Chattanooga 
+# Exploring collinearity
+
+```{r fig.width=7, fig.height=6}
+vars_corr <- Nash_census %>%
+  st_drop_geometry() %>% 
+  select(MedHHInc_19, MedHomeVal_19, RenterOcc_rate_19, 
+           chng_MedHHInc, chng_MedHomeVal, chng_RenterOcc_rate,
+           WhitePop_rate_19, BlackPop_rate_19, HispLatPop_rate_19,
+           chng_WhitePop_rate, chng_BlackPop_rate, chng_HispLatPop_rate,
+           Grad_deg_rate_19, chng_Grad_deg_rate,
+           PubSNAP_rate_19, chng_PubSNAP_rate,
+           near_bus, n_pub_art, pct_chng_crime) %>% 
+  na.omit()
+
+vars_corr <- round(cor(vars_corr), 2)
+
+p.mat <- corr.test(vars_corr)$p
+
+corr_axis_labs <- c(MedHHInc_19 = "Median HH Income",
+             MedHomeVal_19 = "Median Home Value",
+             RenterOcc_rate_19 = "% Renters",
+             chng_MedHHInc = "Change Median Income",
+             chng_MedHomeVal = "Change Home Values",
+             chng_RenterOcc_rate = "Change % Renters",
+             WhitePop_rate_19 = "% White",
+             BlackPop_rate_19 = "% Black", 
+             HispLatPop_rate_19 = "% Hispanic or Latino",
+             chng_WhitePop_rate = "Change % White", 
+             chng_BlackPop_rate = "Change % Black", 
+             chng_HispLatPop_rate = "Change % Hispanic or Latino",
+             Grad_deg_rate_19 = "% Grad Degree", 
+             chng_Grad_deg_rate = "Change % Grad Degree",
+             PubSNAP_rate_19 = "% Recieiving SNAP", 
+             chng_PubSNAP_rate = "Change % Recieiving SNAP",
+             near_bus = "Within .25 mi of bus",
+             n_pub_art = "Public art pieces",
+             pct_chng_crime = "% Change in Crime")
+
+ggcorrplot(vars_corr, type = "lower", hc.order = TRUE, p.mat = p.mat, insig = "blank") +
+  scale_x_discrete(labels = corr_axis_labs) +
+  scale_y_discrete(labels = corr_axis_labs) +
+  theme(axis.text.x = element_text(size = 8),
+        axis.text.y = element_text(size = 8),
+        panel.background = element_rect(fill = "#f0f0f0", color = "#ffffff", linewidth = 2))
+```
+
+
+## Logit models to predict change cluster in Nashville
+
+```{r}
+nash_change_logit <- glm(chng_cluster ~ .,
+                         family="binomial" (link="logit"), 
+                         Nash_census %>% 
+                           select(chng_cluster, BlackPop_rate_19,
+                                  pct_chng_crime) %>% 
+                           st_drop_geometry())
+
+summary(nash_change_logit)
+```
+
+# Confusion matrix
+
+```{r}
+Nash_census <- Nash_census %>% 
+  mutate(outcome = as.factor(chng_cluster),
+         probs = predict(nash_change_logit, Nash_census, type= "response"),
+         pred_outcome = as.factor(case_when(probs >= 0.5 ~ 1,
+                                            probs < 0.5 ~ 0)))
+
+cm <- confusionMatrix(Nash_census$pred_outcome, Nash_census$outcome,
+                      positive = "1")
+
+cm_table <- cm$table
+cm_df <- as.data.frame(cm_table)
+
+rownames(cm_df) <- c("True Negative", "False Positive", 
+                     "False Negative", "True Positive")
+
+gt(cm_df %>% 
+     rownames_to_column()) %>% 
+  fmt_number(columns = Freq, decimals = 0) %>% 
+  tab_header(title = md("**Confusion Matrix**")) %>%
+  opt_align_table_header(align = "left") %>%
+  cols_label(Freq = "Frequency")
+```
+
+## Using Nashville model to predict change cluster in Chattanooga
 
 ```{r}
 
