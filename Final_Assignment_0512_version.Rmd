@@ -944,9 +944,11 @@ corr_axis_labs <- c(MedHHInc_19 = "Median HH Income",
 ggcorrplot(vars_corr, type = "lower", hc.order = TRUE, p.mat = p.mat, insig = "blank") +
   scale_x_discrete(labels = corr_axis_labs) +
   scale_y_discrete(labels = corr_axis_labs) +
+  labs(title = "Correlation Matrix for Nashville")+
   theme(axis.text.x = element_text(size = 8),
         axis.text.y = element_text(size = 8),
         panel.background = element_rect(fill = "#f0f0f0", color = "#ffffff", linewidth = 2))
+
 ```
 
 
@@ -1026,5 +1028,20 @@ testProbs <- data.frame(Outcome = as.factor(Nash_census$chng_cluster),
 
 
 ```
+
+```{r}
+
+auc(testProbs$Outcome, testProbs$Probs)
+
+ggplot(testProbs, aes(d = as.numeric(Outcome), m = Probs)) +
+  geom_roc(n.cuts = 50, labels = FALSE, colour = "#1f78b4") +
+  style_roc(theme = theme_grey) +
+  geom_abline(slope = 1, intercept = 0, size = 1.5, color = 'grey') +
+  labs(title = "ROC Curve: Nashville Model") +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold", margin = margin(b = 6)))
+
+```
+
 
 
