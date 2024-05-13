@@ -1,5 +1,5 @@
 ---
-title: "Final"
+title: "PPA Final: Predicting grentrification in Tennessee"
 author: "Frances Murray, Bailey Bradford, Jonathan Zisk"
 date: "2024-04-26"
 output: 
@@ -41,6 +41,13 @@ library(gridExtra)
 library(ggpubr)
 ```
 
+### Defining gentrification
+
+Gentrification means many things to many people. This report does not settle any of those debates. However, this report does rely on often-cited indicators of gentrification to get at the problem. In general, we consider gentrification to the displacement of poor residents and residents of color from neighborhoods by the arrival and development activities associated with whiter, wealthier residents.
+
+In order to predict gentrification, we have to make the tough decision of labeling neighborhoods with a binary of gentrified versus stayed stable. In order to do so, we collect census data and utilize an unsupervised, k-means clustering technique to split census tracts into four different categories. We label one of these categories as "rapidly gentrifying" compared to the other clusters, based on the way its tracts exhibit rising median incomes, lowering Black and Hispanic populations, rising white populations, and rising educational attainment. Again, these tracts did not definitively gentrify, but they do exhibit more signs of gentrification than their peers. We then build a multinomial logit model to predict, based on 2012 data, whether those tracts would be classified as rapidly gentrifying in 2019. 
+
+The idea of our model is less to identify specific gentrification and more to predict likelihood of gentrification in other locations. We train and test our model on Nashville first, but then use our model to predict gentrification for Chattanooga. Our model is displays high specificity, in that for both Nashville and Chattanooga, it tends to predict against gentrification. This makes sense, given than, out of an entire city's census tracts, only a few might gentrify. While our model has limited sensitivity to true gentrifying tracts, it can still be useful. Specifically, our logit model assigns log likelihoods of gentrification to each tracts. This measure may be even more useful than the predictor itself, as it shows planners, organizers, and politicians which neighborhoods may be most in need of support in the near future. 
 
 ```{r Get ACS 2012 data}
 
@@ -787,9 +794,10 @@ Chatt_census <- Chatt_census %>%
          pct_chng_311 = (n_311_19 - n_311_18) / n_311_18)
 ```
 
-## Census Tract Cluster Analysis
+### Census Tract Cluster Analysis
 
-We use a k-means clustering technique to select for four distinct types of census tracts in our study cities. We use seven variables (see table below) to measure both 2019 metrics in census tracts and the change in those same tracts between 2012 and 2019. 
+We use a k-means clustering technique to select for four distinct types of census tracts in our study cities. First, we collected ACS 5-year estimates for Chattanooga and Nashville using the Tidycensus package in R. We use seven variables (see table below) to measure both 2019 metrics in census tracts and the change in those same tracts between 2012 and 2019. 
+
 
 
 ```{r kmeans table, results = 'markup'}
@@ -880,9 +888,6 @@ Nash_census <- Nash_census %>%
 ```
 
 
-
-
-
 ```{r Nash_cluster_summary, results = 'markup'}
 Nash_clusters <- Nash_census %>% 
   select(MedHHInc_19, MedHomeVal_19, RenterOcc_rate_19, 
@@ -900,8 +905,17 @@ Nash_clusters <- Nash_census %>%
 ## Economic profile table
 
 nash_clusters_econ <- Nash_clusters %>% 
-  select(c(1:7, 14:17))
+  select(c(1:7, 14:17)) %>% 
+    mutate(cluster_id = case_when(
+    cluster_id == "1" ~ "Potentially Gentrifying",
+    cluster_id == "2" ~ "Rapidly Gentrifying",
+    cluster_id == "3" ~ "Resisting Gentrification",
+    cluster_id == "4" ~ "Increasingly Affluent",
+    TRUE ~ "Other"
+  ))
+
 nash_clusters_econ <- nash_clusters_econ[,c(1,2,5,3,6,4,7,8:11)]
+
 
 nash_clusters_econ %>% 
   gt() %>% 
@@ -928,7 +942,14 @@ nash_clusters_econ %>%
 ##Demographic profile table
 
 nash_clusters_demo <- Nash_clusters %>% 
-  select(c(1,8:13))
+  select(c(1,8:13))%>% 
+    mutate(cluster_id = case_when(
+    cluster_id == "1" ~ "Potentially Gentrifying",
+    cluster_id == "2" ~ "Rapidly Gentrifying",
+    cluster_id == "3" ~ "Resisting Gentrification",
+    cluster_id == "4" ~ "Increasingly Affluent",
+    TRUE ~ "Other"
+  ))
 
 nash_clusters_demo <- nash_clusters_demo[,c(1,2,5,3,6,4,7)]
 
@@ -966,8 +987,15 @@ Chatt_clusters <- Chatt_census %>%
 ## Economic profile table
 
 chatt_clusters_econ <- Chatt_clusters %>% 
-  select(c(1:7, 14:17))
-chatt_clusters_econ <- chatt_clusters_econ[,c(1,2,5,3,6,4,7,8:11)]
+  select(c(1:7, 14:17))%>% 
+    mutate(cluster_id = case_when(
+    cluster_id == "1" ~ "Rapidly Gentrifying",
+    cluster_id == "2" ~ "Potentially Gentrifying",
+    cluster_id == "3" ~ "Increasingly Affluent",
+    cluster_id == "4" ~ "Resisting Gentrification",
+    TRUE ~ "Other"
+  ))
+chatt_clusters_econ <- chatt_clusters_econ[c(2,1,4,3),c(1,2,5,3,6,4,7,8:11)]
 
 chatt_clusters_econ %>% 
   gt() %>% 
@@ -994,9 +1022,16 @@ chatt_clusters_econ %>%
 ##Demographic profile table
 
 chatt_clusters_demo <- Chatt_clusters %>% 
-  select(c(1,8:13))
+  select(c(1,8:13))%>% 
+    mutate(cluster_id = case_when(
+    cluster_id == "1" ~ "Rapidly Gentrifying",
+    cluster_id == "2" ~ "Potentially Gentrifying",
+    cluster_id == "3" ~ "Increasingly Affluent",
+    cluster_id == "4" ~ "Resisting Gentrification",
+    TRUE ~ "Other"
+  ))
 
-chatt_clusters_demo <- chatt_clusters_demo[,c(1,2,5,3,6,4,7)]
+chatt_clusters_demo <- chatt_clusters_demo[c(2,1,4,3),c(1,2,5,3,6,4,7)]
 
 chatt_clusters_demo %>% 
   gt() %>% 
