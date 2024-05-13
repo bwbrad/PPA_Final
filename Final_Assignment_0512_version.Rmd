@@ -1057,14 +1057,18 @@ corr_axis_labs <- c(MedHHInc_19 = "Median HH Income",
              near_bus = "Within .25 mi of bus",
              n_pub_art = "Public art pieces",
              pct_chng_crime = "Annual % Change Crime",
-             pct_chng_311 = "Annual % Change 311")
+             pct_chng_311 = "Annual % Change 311 Calls")
 
 ggcorrplot(vars_corr, type = "lower", hc.order = TRUE, p.mat = p.mat, insig = "blank") +
   scale_x_discrete(labels = corr_axis_labs) +
   scale_y_discrete(labels = corr_axis_labs) +
-  labs(title = "Correlation Matrix for Nashville")+
-  theme(axis.text.x = element_text(size = 8),
+  labs(title = "Correlation Matrix for Potential Predictors\nof Neighborhood Change",
+       subtitle = "Nashville, 2012 to 2019",
+       caption = "Source: ACS 5-year, Open Data Nashville")+
+  theme(plot.title = element_text(face = "bold"),
+        axis.text.x = element_text(size = 8),
         axis.text.y = element_text(size = 8),
+        plot.caption = element_text(hjust = 0),
         panel.background = element_rect(fill = "#f0f0f0", color = "#ffffff", linewidth = 2))
 
 ```
@@ -1109,7 +1113,10 @@ Nash_cluster_map <- ggplot() +
           color = "#525252",
           lwd = 0.3,
           lty = "longdash") +
-  theme_void()
+  theme_void() +
+  labs(title = "Nashville (Davidson County)") +
+  theme(legend.position = "bottom",
+        legend.direction = "vertical")
 
 Chatt_cluster_map <- ggplot() +
   geom_sf(data = chat_county,
@@ -1127,7 +1134,10 @@ Chatt_cluster_map <- ggplot() +
           color = "#525252",
           lwd = 0.3,
           lty = "longdash") +
-  theme_void()
+  theme_void() +
+  labs(title = "Chattanooga (Hamilton County)") +
+  theme(legend.position = "bottom",
+        legend.direction = "vertical")
 
 grid.arrange(Nash_cluster_map, Chatt_cluster_map, ncol = 2)
 ```
@@ -1182,13 +1192,59 @@ Chatt_crime_map <- ggplot() +
   theme(legend.position = "bottom",
         legend.text = element_text(angle = 45, hjust = 1))
 
-crime_map <- grid.arrange(Nash_crime_map, Chatt_crime_map, ncol = 2)
+grid.arrange(Nash_crime_map, Chatt_crime_map, ncol = 2)
+```
 
-ggsave(filename = "Exports/crime_map.png",
-       plot = crime_map,
-       width = 8,
-       height = 6,
-       units = "in")
+## 311 Calls
+
+```{r, results='markup'}
+Nash_311_map <- ggplot() +
+  geom_sf(data = nash_county,
+          fill = "#f7f7f7",
+          color = NA) +
+  geom_sf(data = Nash_census,
+          aes(fill = pct_chng_311),
+          color = "#d9d9d9") +
+  scale_fill_distiller(name = "Annual % Change in 311 Calls",
+                       type = "seq",
+                       labels = scales::label_percent(),
+                       palette = "Greens",
+                       direction = 1,
+                       na.value = "#f7f7f7") +
+  geom_sf(data = nash_county,
+          fill = "transparent",
+          color = "#525252",
+          lwd = 0.3,
+          lty = "longdash") +
+  labs(title = "Nashville (Davidson County)") +
+  annotation_scale(location = "bl",
+                   unit_category = "imperial") +
+  theme_void() +
+  theme(legend.position = "bottom")
+
+Chat_311_map <- ggplot() +
+  geom_sf(data = chat_county,
+          fill = "#f7f7f7",
+          color = NA) +
+  geom_sf(data = Chatt_census,
+          aes(fill = pct_chng_311),
+          color = "#d9d9d9") +
+  scale_fill_distiller(name = "Annual % Change in 311 Calls",
+                       type = "div",
+                       labels = scales::label_percent(),
+                       palette = "PRGn",
+                       direction = 1,
+                       na.value = "#f7f7f7") +
+  geom_sf(data = chat_county,
+          fill = "transparent",
+          color = "#525252",
+          lwd = 0.3,
+          lty = "longdash") +
+  labs(title = "Chattanooga (Hamilton County)") +
+  theme_void() +
+  theme(legend.position = "bottom")
+
+grid.arrange(Nash_311_map, Chat_311_map, ncol = 2)
 ```
 
 ## Access to transit
@@ -1244,14 +1300,7 @@ Chat_bus_map <- ggplot() +
   theme_void() +
   theme(legend.position = "bottom")
 
-bus_map <- grid.arrange(Nash_bus_map, Chat_bus_map, ncol = 2)
-
-ggsave(filename = "Exports/bus_map.png",
-       plot = bus_map,
-       width = 8,
-       height = 6.5,
-       units = "in")
-
+grid.arrange(Nash_bus_map, Chat_bus_map, ncol = 2)
 ```
 
 
