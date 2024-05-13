@@ -2,11 +2,17 @@
 title: "Final"
 author: "Frances Murray, Bailey Bradford, Jonathan Zisk"
 date: "2024-04-26"
-output: html_document
+output: 
+  html_document:
+    theme: cosmo 
+    toc: true
+    toc_float: true
+    toc_depth: 4
+    code_folding: hide
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, cache = TRUE, warning = FALSE, results = "hide")
 ```
 
 ```{r setup_packages, results='hide', warning = FALSE, message = FALSE}
@@ -36,7 +42,8 @@ library(ggpubr)
 ```
 
 
-```{r Get ACS 2012 data, results='hide'}
+```{r Get ACS 2012 data}
+
 inflation_factor <- 1.11 # 2012 dollars to 2019 dollars
 
 nash_county <- get_acs(geography = "county",
@@ -352,7 +359,7 @@ Chatt_census12 <-
 options(tigris_use_cache = TRUE)
 ```
 
-```{r Get ACS 2019 data, results='hide'}
+```{r Get ACS 2019 data}
 Nash_census19 <- 
   get_acs(geography = "tract", 
           variables = c("B25026_001E", #total pop
@@ -782,6 +789,26 @@ Chatt_census <- Chatt_census %>%
 
 ## Census Tract Cluster Analysis
 
+We use a k-means clustering technique to select for four distinct types of census tracts in our study cities. We use seven variables (see table below) to measure both 2019 metrics in census tracts and the change in those same tracts between 2012 and 2019. 
+
+
+```{r kmeans table, results = 'markup'}
+
+variables <- c("Median Home Value", "Renter Occupied Rate", "White Population Rate", "Black Population Rate", "Hispanic / Latino Population Rate", "College Degree Rate", "SNAP Recipient Rate")
+
+kmeans_vars <- as.data.frame(variables)
+
+
+kmeans_vars %>% 
+  gt() %>% 
+  tab_header(title = "K-means clustering variables") %>% 
+  gt_theme_nytimes()
+
+
+```
+
+
+
 ```{r assigning Nashville clusters}
 # set seed and cluster number
 
@@ -816,8 +843,8 @@ Chatt_scaled$cluster_id <- factor(km.out_Chatt$cluster)
 Chatt_census <- Chatt_census %>% 
   left_join(Chatt_scaled %>% 
               select(GEOID, cluster_id),
-            by = c("GEOID")) %>% 
-  mutate(chng_cluster = case_when(cluster_id == "3" ~ 1,
+            by = c("GEOID")) %>%  
+  mutate(chng_cluster = case_when(cluster_id == "1" ~ 1,
                                   TRUE ~ 0))
 
 #### Nashville 
@@ -845,77 +872,15 @@ Nash_census <- Nash_census %>%
   left_join(Nash_scaled %>% 
               select(GEOID, cluster_id),
             by = c("GEOID")) %>% 
-  mutate(chng_cluster = case_when(cluster_id == "4" ~ 1,
+  mutate(chng_cluster = case_when(cluster_id == "2" ~ 1,
                                   TRUE ~ 0))
 
-Nash_clusters <- Nash_census %>% 
-  select(MedHHInc_19, MedHomeVal_19, RenterOcc_rate_19, 
-           chng_MedHHInc, chng_MedHomeVal, chng_RenterOcc_rate,
-           WhitePop_rate_19, BlackPop_rate_19, HispLatPop_rate_19,
-           chng_WhitePop_rate, chng_BlackPop_rate, chng_HispLatPop_rate,
-           Grad_deg_rate_19, chng_Grad_deg_rate,
-           PubSNAP_rate_19, chng_PubSNAP_rate, cluster_id) %>% 
-  st_drop_geometry() %>% 
-  group_by(cluster_id) %>% 
-  summarise_all("mean") %>% 
-  na.omit()
 
-gt(Nash_clusters)
 
 ```
 
 
-```{r Chatt_cluster_summary, results = 'markup'}
-Chatt_clusters <- Chatt_census %>% 
-  select(MedHHInc_19, MedHomeVal_19, RenterOcc_rate_19, 
-           chng_MedHHInc, chng_MedHomeVal, chng_RenterOcc_rate,
-           WhitePop_rate_19, BlackPop_rate_19, HispLatPop_rate_19,
-           chng_WhitePop_rate, chng_BlackPop_rate, chng_HispLatPop_rate,
-           Grad_deg_rate_19, chng_Grad_deg_rate,
-           PubSNAP_rate_19, chng_PubSNAP_rate, cluster_id) %>% 
-  st_drop_geometry() %>% 
-  group_by(cluster_id) %>% 
-  summarise_all("mean") %>% 
-  na.omit()
 
-Chatt_clusters %>% 
-  gt() %>% 
-  fmt_percent(columns = c(RenterOcc_rate_19, chng_RenterOcc_rate,
-                          WhitePop_rate_19, BlackPop_rate_19, HispLatPop_rate_19,
-                          chng_WhitePop_rate, chng_BlackPop_rate, 
-                          chng_HispLatPop_rate, Grad_deg_rate_19, 
-                          chng_Grad_deg_rate, PubSNAP_rate_19, 
-                          chng_PubSNAP_rate,), 
-              decimals = 1) %>% 
-  fmt_currency(columns = c(MedHHInc_19, MedHomeVal_19, chng_MedHHInc, 
-                           chng_MedHomeVal), 
-               decimals = 0) %>% 
-  cols_label(cluster_id = "Cluster",
-             MedHHInc_19 = "Median HH Income",
-             MedHomeVal_19 = "Median Home Value",
-             RenterOcc_rate_19 = "% Renters",
-             chng_MedHHInc = "Change Median Income",
-             chng_MedHomeVal = "Change Home Values",
-             chng_RenterOcc_rate = "Change % Renters",
-             WhitePop_rate_19 = "% White",
-             BlackPop_rate_19 = "% Black", 
-             HispLatPop_rate_19 = "% Hispanic or Latino",
-             chng_WhitePop_rate = "Change % White", 
-             chng_BlackPop_rate = "Change % Black", 
-             chng_HispLatPop_rate = "Change % Hispanic or Latino",
-             Grad_deg_rate_19 = "% Grad Degree", 
-             chng_Grad_deg_rate = "Change % Grad Degree",
-             PubSNAP_rate_19 = "% Recieiving SNAP", 
-             chng_PubSNAP_rate = "Change % Recieiving SNAP") %>%
-  cols_width(3:9 ~ px(200)) %>%
-  tab_header(title = "Summary of Cluster Characteristics for Chattanooga in 2019 & Change from 2012-19",
-             subtitle = "Source: 2012 & 2019 ACS 5-year Estimate") %>% 
-  gt_theme_538()
-```
-
-```{r}
-
-```
 
 
 ```{r Nash_cluster_summary, results = 'markup'}
@@ -931,17 +896,18 @@ Nash_clusters <- Nash_census %>%
   summarise_all("mean") %>% 
   na.omit()
 
-Nash_clusters %>% 
+
+## Economic profile table
+
+nash_clusters_econ <- Nash_clusters %>% 
+  select(c(1:7, 14:17))
+nash_clusters_econ <- nash_clusters_econ[,c(1,2,5,3,6,4,7,8:11)]
+
+nash_clusters_econ %>% 
   gt() %>% 
-  fmt_percent(columns = c(RenterOcc_rate_19, chng_RenterOcc_rate,
-                          WhitePop_rate_19, BlackPop_rate_19, HispLatPop_rate_19,
-                          chng_WhitePop_rate, chng_BlackPop_rate, 
-                          chng_HispLatPop_rate, Grad_deg_rate_19, 
-                          chng_Grad_deg_rate, PubSNAP_rate_19, 
-                          chng_PubSNAP_rate,), 
+  fmt_percent(columns = c(6:11), 
               decimals = 1) %>% 
-  fmt_currency(columns = c(MedHHInc_19, MedHomeVal_19, chng_MedHHInc, 
-                           chng_MedHomeVal), 
+  fmt_currency(columns = c(2:5), 
                decimals = 0) %>% 
   cols_label(cluster_id = "Cluster",
              MedHHInc_19 = "Median HH Income",
@@ -950,25 +916,113 @@ Nash_clusters %>%
              chng_MedHHInc = "Change Median Income",
              chng_MedHomeVal = "Change Home Values",
              chng_RenterOcc_rate = "Change % Renters",
+             Grad_deg_rate_19 = "% Grad Degree", 
+             chng_Grad_deg_rate = "Change % Grad Degree",
+             PubSNAP_rate_19 = "% Recieiving SNAP", 
+             chng_PubSNAP_rate = "Change % Recieiving SNAP") %>%
+    tab_header(title = "Economic Profile of Clusters for Nashville",
+             subtitle = "2019 and change sicne 2012 (Source: 2012 & 2019 ACS 5-year Estimate) ") %>% 
+  cols_width(2:11 ~ px(200)) %>%
+  gt_theme_nytimes()
+
+##Demographic profile table
+
+nash_clusters_demo <- Nash_clusters %>% 
+  select(c(1,8:13))
+
+nash_clusters_demo <- nash_clusters_demo[,c(1,2,5,3,6,4,7)]
+
+nash_clusters_demo %>% 
+  gt() %>% 
+  fmt_percent(columns = c(2:7), 
+              decimals =1) %>% 
+  cols_label(cluster_id = "Cluster",
              WhitePop_rate_19 = "% White",
              BlackPop_rate_19 = "% Black", 
              HispLatPop_rate_19 = "% Hispanic or Latino",
              chng_WhitePop_rate = "Change % White", 
              chng_BlackPop_rate = "Change % Black", 
-             chng_HispLatPop_rate = "Change % Hispanic or Latino",
+             chng_HispLatPop_rate = "Change % Hispanic or Latino") %>%
+  tab_header(title = "Demographic Profile of Clusters for Nashville",
+             subtitle = "2019 and change since 2012 (Source: 2012 & 2019 ACS 5-year Estimate) ") %>% 
+    cols_width(2:7 ~ px(200)) %>%
+  gt_theme_nytimes()
+
+```
+```{r Chatt_cluster_summary, results = 'markup'}
+
+Chatt_clusters <- Chatt_census %>% 
+  select(MedHHInc_19, MedHomeVal_19, RenterOcc_rate_19, 
+           chng_MedHHInc, chng_MedHomeVal, chng_RenterOcc_rate,
+           WhitePop_rate_19, BlackPop_rate_19, HispLatPop_rate_19,
+           chng_WhitePop_rate, chng_BlackPop_rate, chng_HispLatPop_rate,
+           Grad_deg_rate_19, chng_Grad_deg_rate,
+           PubSNAP_rate_19, chng_PubSNAP_rate, cluster_id) %>% 
+  st_drop_geometry() %>% 
+  group_by(cluster_id) %>% 
+  summarise_all("mean") %>% 
+  na.omit() 
+
+## Economic profile table
+
+chatt_clusters_econ <- Chatt_clusters %>% 
+  select(c(1:7, 14:17))
+chatt_clusters_econ <- chatt_clusters_econ[,c(1,2,5,3,6,4,7,8:11)]
+
+chatt_clusters_econ %>% 
+  gt() %>% 
+  fmt_percent(columns = c(6:11), 
+              decimals = 1) %>% 
+  fmt_currency(columns = c(2:5), 
+               decimals = 0) %>% 
+  cols_label(cluster_id = "Cluster",
+             MedHHInc_19 = "Median HH Income",
+             MedHomeVal_19 = "Median Home Value",
+             RenterOcc_rate_19 = "% Renters",
+             chng_MedHHInc = "Change Median Income",
+             chng_MedHomeVal = "Change Home Values",
+             chng_RenterOcc_rate = "Change % Renters",
              Grad_deg_rate_19 = "% Grad Degree", 
              chng_Grad_deg_rate = "Change % Grad Degree",
              PubSNAP_rate_19 = "% Recieiving SNAP", 
              chng_PubSNAP_rate = "Change % Recieiving SNAP") %>%
-  cols_width(3:9 ~ px(200)) %>%
-  tab_header(title = "Summary of Cluster Characteristics for Nashville in 2019 & Change from 2012-19",
-             subtitle = "Source: 2012 & 2019 ACS 5-year Estimate") %>% 
-  gt_theme_538()
+    tab_header(title = "Economic Profile of Clusters for Chattanooga",
+             subtitle = "2019 and change since 2012 (Source: 2012 & 2019 ACS 5-year Estimate) ") %>% 
+  cols_width(2:11 ~ px(200)) %>%
+  gt_theme_nytimes()
+
+##Demographic profile table
+
+chatt_clusters_demo <- Chatt_clusters %>% 
+  select(c(1,8:13))
+
+chatt_clusters_demo <- chatt_clusters_demo[,c(1,2,5,3,6,4,7)]
+
+chatt_clusters_demo %>% 
+  gt() %>% 
+  fmt_percent(columns = c(2:7), 
+              decimals =1) %>% 
+  cols_label(cluster_id = "Cluster",
+             WhitePop_rate_19 = "% White",
+             BlackPop_rate_19 = "% Black", 
+             HispLatPop_rate_19 = "% Hispanic or Latino",
+             chng_WhitePop_rate = "Change % White", 
+             chng_BlackPop_rate = "Change % Black", 
+             chng_HispLatPop_rate = "Change % Hispanic or Latino") %>%
+  tab_header(title = "Demographic Profile of Clusters for Chattanooga",
+             subtitle = "2019 and change since 2012 (Source: 2012 & 2019 ACS 5-year Estimate) ") %>% 
+    cols_width(2:7 ~ px(200)) %>%
+  gt_theme_nytimes()
+
+
+
 ```
 
 # Exploring collinearity
 
-```{r fig.width=7, fig.height=6}
+The plot below shows how all of our selected census and spatial variables interact with one another. While some have high positive correlation, shown in red (median household income and rate of graduate degrees, for example), we pay particular attention to those with negative correlation, shown in blue, as they may be important indicators of neighborhood change or gentrification. Variables with the strongest negative correlation include percent black with percent white, indicating the way neighborhoods are racially segregated, and change in percent black with percent white, indicating the way neighborhood change often occurs along a Black/White racial binary. Negative correlations for percent Hispanic / Latino are similar, although less intense than for Black demographics. 
+
+```{r, results='markup',fig.width=7, fig.height=6}
 vars_corr <- Nash_census %>%
   st_drop_geometry() %>% 
   select(MedHHInc_19, MedHomeVal_19, RenterOcc_rate_19, 
@@ -1019,13 +1073,32 @@ ggcorrplot(vars_corr, type = "lower", hc.order = TRUE, p.mat = p.mat, insig = "b
 
 ## Cluster IDs
 
-```{r}
+```{r, results='markup'}
+
+Nash_census <- Nash_census %>% 
+    mutate(cluster_name = case_when(
+    cluster_id == "1" ~ "Potentially Gentrifying",
+    cluster_id == "2" ~ "Rapidly Gentrifying",
+    cluster_id == "3" ~ "Resisting Gentrification",
+    cluster_id == "4" ~ "Increasingly Affluent",
+    TRUE ~ "Other"
+  ))
+
+Chatt_census <- Chatt_census %>% 
+    mutate(cluster_name = case_when(
+    cluster_id == "1" ~ "Rapidly Gentrifying",
+    cluster_id == "2" ~ "Potentially Gentrifying",
+    cluster_id == "3" ~ "Increasingly Affluent",
+    cluster_id == "4" ~ "Resisting Gentrification",
+    TRUE ~ "Other"
+  ))
+
 Nash_cluster_map <- ggplot() +
   geom_sf(data = nash_county,
           fill = "#f7f7f7",
           color = NA) +
-  geom_sf(data = Nash_census,
-          aes(fill = cluster_id),
+  geom_sf(data = subset(Nash_census, cluster_name != "Other"),
+          aes(fill = cluster_name),
           color = "#d9d9d9") +
   scale_fill_brewer(name = "Cluster",
                     type = "qual",
@@ -1042,8 +1115,8 @@ Chatt_cluster_map <- ggplot() +
   geom_sf(data = chat_county,
           fill = "#f7f7f7",
           color = NA) +
-  geom_sf(data = Chatt_census,
-          aes(fill = cluster_id),
+  geom_sf(data = subset(Chatt_census, cluster_name != "Other"),
+          aes(fill = cluster_name),
           color = "#d9d9d9") +
   scale_fill_brewer(name = "Cluster",
                     type = "qual",
@@ -1061,7 +1134,7 @@ grid.arrange(Nash_cluster_map, Chatt_cluster_map, ncol = 2)
 
 ## Crime
 
-```{r}
+```{r, results='markup'}
 Nash_crime_map <- ggplot() +
   geom_sf(data = nash_county,
           fill = "#f7f7f7",
@@ -1120,7 +1193,7 @@ ggsave(filename = "Exports/crime_map.png",
 
 ## Access to transit
 
-```{r}
+```{r, results='markup'}
 Nash_census <- Nash_census %>% 
   mutate(near_bus_yn = case_when(near_bus == 1 ~ "Yes",
                                  near_bus == 0 ~ "No"))
@@ -1215,7 +1288,7 @@ summary(nash_change_logit4)
 
 # Confusion matrices 
 
-```{r}
+```{r confusion matrix, results = "markup"}
 Nash_census <- Nash_census %>% 
   mutate(outcome = as.factor(chng_cluster),
          probs = predict(nash_change_logit, Nash_census, type= "response"),
@@ -1239,7 +1312,7 @@ gt(cm_df_nash %>%
   cols_label(Freq = "Frequency")
 ```
 
-```{r}
+```{r chatt matrix, results='markup'}
 Chatt_census <- Chatt_census %>% 
   mutate(outcome = as.factor(chng_cluster),
          probs = predict(nash_change_logit4, Chatt_census, type= "response"),
