@@ -1,0 +1,1472 @@
+---
+title: "PPA Final: Predicting grentrification in Tennessee"
+author: "Frances Murray, Bailey Bradford, Jonathan Zisk"
+date: "2024-04-26"
+output: 
+  html_document:
+    theme: cosmo 
+    toc: true
+    toc_float: true
+    toc_depth: 4
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, cache = TRUE, warning = FALSE, results = "hide")
+```
+
+```{r setup_packages, results='hide', warning = FALSE, message = FALSE}
+library(tidyverse)
+library(tidycensus)
+library(sf)
+library(gt)
+library(gtExtras)
+library(factoextra)
+library(ggthemes)
+library(RColorBrewer)
+library(tmap)
+library(tigris)
+library(webshot2)
+library(ggcorrplot)
+library(ggspatial)
+library(caret)
+library(knitr) 
+library(pscl)
+library(plotROC)
+library(pROC)
+library(lubridate)
+library(car)
+library(psych)
+library(gridExtra)
+library(ggpubr)
+```
+
+### Defining gentrification
+
+Gentrification means many things to many people. This report does not settle any of those debates. However, this report does rely on often-cited indicators of gentrification to get at the problem. In general, we consider gentrification to the displacement of poor residents and residents of color from neighborhoods by the arrival and development activities associated with whiter, wealthier residents.
+
+In order to predict gentrification, we have to make the tough decision of labeling neighborhoods with a binary of gentrified versus stayed stable. In order to do so, we collect census data and utilize an unsupervised, k-means clustering technique to split census tracts into four different categories. We label one of these categories as "rapidly gentrifying" compared to the other clusters, based on the way its tracts exhibit rising median incomes, lowering Black and Hispanic populations, rising white populations, and rising educational attainment. Again, these tracts did not definitively gentrify, but they do exhibit more signs of gentrification than their peers. We then build a multinomial logit model to predict, based on 2012 data, whether those tracts would be classified as rapidly gentrifying in 2019. 
+
+The idea of our model is less to identify specific gentrification and more to predict likelihood of gentrification in other locations. We train and test our model on Nashville first, but then use our model to predict gentrification for Chattanooga. Our model is displays high specificity, in that for both Nashville and Chattanooga, it tends to predict against gentrification. This makes sense given that out of an entire city's census tracts, only a few might gentrify. While our model has limited sensitivity to true gentrifying tracts, it can still be useful. Specifically, our logit model assigns log likelihoods of gentrification to each tracts. This measure may be even more useful than the predictor itself, as it shows planners, organizers, and politicians which neighborhoods may be most in need of support in the near future. 
+
+```{r Get ACS 2012 data}
+
+inflation_factor <- 1.11 # 2012 dollars to 2019 dollars
+
+nash_county <- get_acs(geography = "county",
+                       year=2012,
+                       state=47,
+                       county=037, 
+                       geometry=TRUE,
+                       variables = "B25026_001E") %>% 
+  st_transform('ESRI:102271')
+
+chat_county <- get_acs(geography = "county",
+                       year=2012,
+                       state=47,
+                       county=065, 
+                       geometry=TRUE,
+                       variables = "B25026_001E") %>% 
+  st_transform('ESRI:102271')
+
+acs_vars_names <- c("TotalPop", "MedHHInc", "MedRent", "MedHomeVal",
+         "VacHU",
+         "Poverty",
+         "PubSNAP",
+         "OwnerOcc",
+         "RenterOcc",
+         "TotalHU",
+         "MedHUBuilt",
+         "BlackPop",
+         "HispLatPop",
+         "WhitePop",
+         "AsianPop",
+         "NatAmPop",
+         "Bach_deg",
+         "No_HS_Deg",
+         "HS_Grad",
+         "Grad_deg",
+         "Drive_commute",
+         "Carpool_commute",
+         "PubTrans_commute",
+         "Bike_commute",
+         "Walk_commute",
+         "WFA_commute",
+         "US_cit",
+         "NotUS_cit",
+         "EmplPop",
+         "UnemplPop",
+         "Occ_Agri",
+         "Occ_Const",
+         "Occ_Manuf",
+         "Occ_Wholesale",
+         "Occ_Retail",
+         "Occ_Transport",
+         "Occ_Info",
+         "Occ_FinIns",
+         "Occ_Prof_sci_mangr",
+         "Occ_Edu_health",
+         "Occ_Art_Hosp",
+         "Occ_PubAdmin",
+         "Occ_ArmedForce",
+         "Occ_other",
+         "PubSNAP_rate",
+         "RenterOcc_rate", 
+         "WhitePop_rate", 
+         "BlackPop_rate",
+         "HispLatPop_rate",
+         "Grad_deg_rate", 
+         "PubTrans_commute_ratio",
+         "Citizen_Ratio")
+
+Nash_census12 <- 
+  get_acs(geography = "tract", 
+          variables = c("B25026_001E", #total pop
+                        "B19013_001E", #med hh inc
+                        "B06012_002E", #poverty
+                        "B19058_002E", #with public assistance income or SNAP
+                       
+                        #housing
+                        "B25058_001E", #med rent
+                        "B25077_001E", #med home val
+                        "B25003_002E", #owner occupied
+                        "B25003_003E", #renter occupied
+                        "B25004_001E", #vacant hu
+                        "B25024_001E", #total hu
+                        "B25035_001E", #med year structure built
+                       
+                        #race
+                        "B03002_004E", #black pop
+                        "B03002_012E", #hisp / latino pop
+                        "B03002_003E", #white pop
+                        "B03002_006E", #asian pop
+                        "B03002_005E", #native american
+                        
+                        #education
+                        "B06009_005E", #bach degree
+                        "B06009_003E", #high school grad or equivilant
+                        "B06009_002E", #less than hs deg
+                        "B06009_006E", #grad or pro degree
+                        
+                        #means of transport to work
+                        "B08006_003E", #drove alone
+                        "B08006_004E", #carpooled
+                        "B08006_008E", #public transit
+                        "B08006_014E", #bike
+                        "B08006_015E", #walk
+                        "B08006_017E", #work from home
+                        
+                        #citizenship
+                        "B05001_002E", #US citizen born in US
+                        "B05001_006E", #not US citizen
+                        
+                        #employment
+                        "B23025_004E", #employed pop 16 & over
+                        "B23025_005E", #unemployed pop 16 & over
+                        "B08126_002E", #agriculture
+                        "B08126_003E", #construction
+                        "B08126_004E", #manufacturing
+                        "B08126_005E", #wholesale trade
+                        "B08126_006E", #retail
+                        "B08126_007E", #transport, warehouse, utilities
+                        "B08126_008E", #information
+                        "B08126_009E", #finance, insurance
+                        "B08126_010E", #pro, sci, management
+                        "B08126_011E", #education & health care
+                        "B08126_012E", #arts, entertainment, rec & hospitality
+                        "B08126_014E", #public admin
+                        "B08126_015E", #armed forces
+                        "B08126_013E"), #other
+                        
+          year=2012, state=47, county=037, 
+          geometry=TRUE, output="wide") %>%
+  st_transform('ESRI:102271') %>%
+  rename(TotalPop = B25026_001E, 
+         MedHHInc = B19013_001E, 
+         MedRent = B25058_001E,
+         MedHomeVal = B25077_001E,
+         VacHU = B25004_001E,
+         Poverty = B06012_002E,
+         PubSNAP = B19058_002E,
+         OwnerOcc = B25003_002E,
+         RenterOcc = B25003_003E,
+         TotalHU = B25024_001E,
+         MedHUBuilt = B25035_001E,
+         BlackPop = B03002_004E,
+         HispLatPop = B03002_012E,
+         WhitePop = B03002_003E,
+         AsianPop = B03002_006E,
+         NatAmPop = B03002_005E,
+         Bach_deg = B06009_005E,
+         No_HS_Deg = B06009_002E,
+         HS_Grad = B06009_003E,
+         Grad_deg = B06009_006E,
+         Drive_commute = B08006_003E,
+         Carpool_commute = B08006_004E,
+         PubTrans_commute = B08006_008E,
+         Bike_commute = B08006_014E,
+         Walk_commute = B08006_015E,
+         WFA_commute = B08006_017E,
+         US_cit = B05001_002E,
+         NotUS_cit = B05001_006E,
+         EmplPop = B23025_004E,
+         UnemplPop = B23025_005E,
+         Occ_Agri = B08126_002E,
+         Occ_Const = B08126_003E,
+         Occ_Manuf = B08126_004E,
+         Occ_Wholesale = B08126_005E,
+         Occ_Retail = B08126_006E,
+         Occ_Transport = B08126_007E,
+         Occ_Info = B08126_008E,
+         Occ_FinIns = B08126_009E,
+         Occ_Prof_sci_mangr = B08126_010E,
+         Occ_Edu_health = B08126_011E,
+         Occ_Art_Hosp = B08126_012E,
+         Occ_PubAdmin = B08126_014E,
+         Occ_ArmedForce = B08126_015E,
+         Occ_other = B08126_013E)%>%
+  dplyr::select(-NAME, -ends_with("M")) %>% 
+  mutate(MedHHInc = MedHHInc * inflation_factor,
+         MedRent = MedRent * inflation_factor,
+         MedHomeVal = MedHomeVal * inflation_factor,
+         PubSNAP_rate = PubSNAP/TotalPop, 
+         RenterOcc_rate = RenterOcc/TotalPop, 
+         WhitePop_rate = WhitePop / TotalPop, 
+         BlackPop_rate = BlackPop / TotalPop,
+         HispLatPop_rate = HispLatPop / TotalPop,
+         Grad_deg_rate = Grad_deg/TotalPop, 
+         PubTrans_commute_ratio = PubTrans_commute/Drive_commute,
+         Citizen_Ratio = NotUS_cit/US_cit) %>% 
+  rename_with(~ str_c(., "_12"),
+              .cols = all_of(acs_vars_names))
+  
+options(tigris_use_cache = TRUE)
+
+Chatt_census12 <- 
+  get_acs(geography = "tract", 
+          variables = c("B25026_001E", #total pop
+                        "B19013_001E", #med hh inc
+                        "B06012_002E", #poverty
+                        "B19058_002E", #with public assistance income or SNAP
+                       
+                        #housing
+                        "B25058_001E", #med rent
+                        "B25077_001E", #med home val
+                        "B25003_002E", #owner occupied
+                        "B25003_003E", #renter occupied
+                        "B25004_001E", #vacant hu
+                        "B25024_001E", #total hu
+                        "B25035_001E", #med year structure built
+                       
+                        #race
+                        "B03002_004E", #black pop
+                        "B03002_012E", #hisp / latino pop
+                        "B03002_003E", #white pop
+                        "B03002_006E", #asian pop
+                        "B03002_005E", #native american
+                        
+                        #education
+                        "B06009_005E", #bach degree
+                        "B06009_003E", #high school grad or equivilant
+                        "B06009_002E", #less than hs deg
+                        "B06009_006E", #grad or pro degree
+                        
+                        #means of transport to work
+                        "B08006_003E", #drove alone
+                        "B08006_004E", #carpooled
+                        "B08006_008E", #public transit
+                        "B08006_014E", #bike
+                        "B08006_015E", #walk
+                        "B08006_017E", #work from home
+                        
+                        #citizenship
+                        "B05001_002E", #US citizen born in US
+                        "B05001_006E", #not US citizen
+                        
+                        #employment
+                        "B23025_004E", #employed pop 16 & over
+                        "B23025_005E", #unemployed pop 16 & over
+                        "B08126_002E", #agriculture
+                        "B08126_003E", #construction
+                        "B08126_004E", #manufacturing
+                        "B08126_005E", #wholesale trade
+                        "B08126_006E", #retail
+                        "B08126_007E", #transport, warehouse, utilities
+                        "B08126_008E", #information
+                        "B08126_009E", #finance, insurance
+                        "B08126_010E", #pro, sci, management
+                        "B08126_011E", #education & health care
+                        "B08126_012E", #arts, entertainment, rec & hospitality
+                        "B08126_014E", #public admin
+                        "B08126_015E", #armed forces
+                        "B08126_013E"), #other
+                        
+          year=2012, state=47, county=065, 
+          geometry=TRUE, output="wide") %>%
+  st_transform('ESRI:102271') %>%
+  rename(TotalPop = B25026_001E, 
+         MedHHInc = B19013_001E, 
+         MedRent = B25058_001E,
+         MedHomeVal = B25077_001E,
+         VacHU = B25004_001E,
+         Poverty = B06012_002E,
+         PubSNAP = B19058_002E,
+         OwnerOcc = B25003_002E,
+         RenterOcc = B25003_003E,
+         TotalHU = B25024_001E,
+         MedHUBuilt = B25035_001E,
+         BlackPop = B03002_004E,
+         HispLatPop = B03002_012E,
+         WhitePop = B03002_003E,
+         AsianPop = B03002_006E,
+         NatAmPop = B03002_005E,
+         Bach_deg = B06009_005E,
+         No_HS_Deg = B06009_002E,
+         HS_Grad = B06009_003E,
+         Grad_deg = B06009_006E,
+         Drive_commute = B08006_003E,
+         Carpool_commute = B08006_004E,
+         PubTrans_commute = B08006_008E,
+         Bike_commute = B08006_014E,
+         Walk_commute = B08006_015E,
+         WFA_commute = B08006_017E,
+         US_cit = B05001_002E,
+         NotUS_cit = B05001_006E,
+         EmplPop = B23025_004E,
+         UnemplPop = B23025_005E,
+         Occ_Agri = B08126_002E,
+         Occ_Const = B08126_003E,
+         Occ_Manuf = B08126_004E,
+         Occ_Wholesale = B08126_005E,
+         Occ_Retail = B08126_006E,
+         Occ_Transport = B08126_007E,
+         Occ_Info = B08126_008E,
+         Occ_FinIns = B08126_009E,
+         Occ_Prof_sci_mangr = B08126_010E,
+         Occ_Edu_health = B08126_011E,
+         Occ_Art_Hosp = B08126_012E,
+         Occ_PubAdmin = B08126_014E,
+         Occ_ArmedForce = B08126_015E,
+         Occ_other = B08126_013E)%>%
+  dplyr::select(-NAME, -ends_with("M")) %>% 
+  mutate(MedHHInc = MedHHInc * inflation_factor,
+         MedRent = MedRent * inflation_factor,
+         MedHomeVal = MedHomeVal * inflation_factor,
+         PubSNAP_rate = PubSNAP/TotalPop, 
+         RenterOcc_rate = RenterOcc/TotalPop, 
+         WhitePop_rate = WhitePop / TotalPop, 
+         BlackPop_rate = BlackPop / TotalPop,
+         HispLatPop_rate = HispLatPop / TotalPop,
+         Grad_deg_rate = Grad_deg/TotalPop, 
+         PubTrans_commute_ratio = PubTrans_commute/Drive_commute,
+         Citizen_Ratio = NotUS_cit/US_cit) %>% 
+  rename_with(~ str_c(., "_12"),
+              .cols = all_of(acs_vars_names))
+
+options(tigris_use_cache = TRUE)
+```
+
+```{r Get ACS 2019 data}
+Nash_census19 <- 
+  get_acs(geography = "tract", 
+          variables = c("B25026_001E", #total pop
+                        "B19013_001E", #med hh inc
+                        "B06012_002E", #poverty
+                        "B19058_002E", #with public assistance income or SNAP
+                       
+                        #housing
+                        "B25058_001E", #med rent
+                        "B25077_001E", #med home val
+                        "B25003_002E", #owner occupied
+                        "B25003_003E", #renter occupied
+                        "B25004_001E", #vacant hu
+                        "B25024_001E", #total hu
+                        "B25035_001E", #med year structure built
+                       
+                        #race
+                        "B03002_004E", #black pop
+                        "B03002_012E", #hisp / latino pop
+                        "B03002_003E", #white pop
+                        "B03002_006E", #asian pop
+                        "B03002_005E", #native american
+                        
+                        #education
+                        "B06009_005E", #bach degree
+                        "B06009_003E", #high school grad or equivilant
+                        "B06009_002E", #less than hs deg
+                        "B06009_006E", #grad or pro degree
+                        
+                        #means of transport to work
+                        "B08006_003E", #drove alone
+                        "B08006_004E", #carpooled
+                        "B08006_008E", #public transit
+                        "B08006_014E", #bike
+                        "B08006_015E", #walk
+                        "B08006_017E", #work from home
+                        
+                        #citizenship
+                        "B05001_002E", #US citizen born in US
+                        "B05001_006E", #not US citizen
+                        
+                        #employment
+                        "B23025_004E", #employed pop 16 & over
+                        "B23025_005E", #unemployed pop 16 & over
+                        "B08126_002E", #agriculture
+                        "B08126_003E", #construction
+                        "B08126_004E", #manufacturing
+                        "B08126_005E", #wholesale trade
+                        "B08126_006E", #retail
+                        "B08126_007E", #transport, warehouse, utilities
+                        "B08126_008E", #information
+                        "B08126_009E", #finance, insurance
+                        "B08126_010E", #pro, sci, management
+                        "B08126_011E", #education & health care
+                        "B08126_012E", #arts, entertainment, rec & hospitality
+                        "B08126_014E", #public admin
+                        "B08126_015E", #armed forces
+                        "B08126_013E"), #other
+                        
+          year=2019, state=47, county=037, 
+          geometry=TRUE, output="wide") %>%
+  st_transform('ESRI:102271') %>%
+  rename(TotalPop = B25026_001E, 
+         MedHHInc = B19013_001E, 
+         MedRent = B25058_001E,
+         MedHomeVal = B25077_001E,
+         VacHU = B25004_001E,
+         Poverty = B06012_002E,
+         PubSNAP = B19058_002E,
+         OwnerOcc = B25003_002E,
+         RenterOcc = B25003_003E,
+         TotalHU = B25024_001E,
+         MedHUBuilt = B25035_001E,
+         BlackPop = B03002_004E,
+         HispLatPop = B03002_012E,
+         WhitePop = B03002_003E,
+         AsianPop = B03002_006E,
+         NatAmPop = B03002_005E,
+         Bach_deg = B06009_005E,
+         No_HS_Deg = B06009_002E,
+         HS_Grad = B06009_003E,
+         Grad_deg = B06009_006E,
+         Drive_commute = B08006_003E,
+         Carpool_commute = B08006_004E,
+         PubTrans_commute = B08006_008E,
+         Bike_commute = B08006_014E,
+         Walk_commute = B08006_015E,
+         WFA_commute = B08006_017E,
+         US_cit = B05001_002E,
+         NotUS_cit = B05001_006E,
+         EmplPop = B23025_004E,
+         UnemplPop = B23025_005E,
+         Occ_Agri = B08126_002E,
+         Occ_Const = B08126_003E,
+         Occ_Manuf = B08126_004E,
+         Occ_Wholesale = B08126_005E,
+         Occ_Retail = B08126_006E,
+         Occ_Transport = B08126_007E,
+         Occ_Info = B08126_008E,
+         Occ_FinIns = B08126_009E,
+         Occ_Prof_sci_mangr = B08126_010E,
+         Occ_Edu_health = B08126_011E,
+         Occ_Art_Hosp = B08126_012E,
+         Occ_PubAdmin = B08126_014E,
+         Occ_ArmedForce = B08126_015E,
+         Occ_other = B08126_013E) %>%
+  dplyr::select(-NAME, -ends_with("M")) %>% 
+  mutate(PubSNAP_rate = PubSNAP/TotalPop, 
+         RenterOcc_rate = RenterOcc/TotalPop, 
+         WhitePop_rate = WhitePop / TotalPop, 
+         BlackPop_rate = BlackPop / TotalPop,
+         HispLatPop_rate = HispLatPop / TotalPop,
+         Grad_deg_rate = Grad_deg/TotalPop, 
+         PubTrans_commute_ratio = PubTrans_commute/Drive_commute,
+         Citizen_Ratio = NotUS_cit/US_cit) %>% 
+  rename_with(~ str_c(., "_19"),
+              .cols = all_of(acs_vars_names))
+
+options(tigris_use_cache = TRUE)
+
+Chatt_census19 <- 
+  get_acs(geography = "tract", 
+          variables = c("B25026_001E", #total pop
+                        "B19013_001E", #med hh inc
+                        "B06012_002E", #poverty
+                        "B19058_002E", #with public assistance income or SNAP
+                       
+                        #housing
+                        "B25058_001E", #med rent
+                        "B25077_001E", #med home val
+                        "B25003_002E", #owner occupied
+                        "B25003_003E", #renter occupied
+                        "B25004_001E", #vacant hu
+                        "B25024_001E", #total hu
+                        "B25035_001E", #med year structure built
+                       
+                        #race
+                        "B03002_004E", #black pop
+                        "B03002_012E", #hisp / latino pop
+                        "B03002_003E", #white pop
+                        "B03002_006E", #asian pop
+                        "B03002_005E", #native american
+                        
+                        #education
+                        "B06009_005E", #bach degree
+                        "B06009_003E", #high school grad or equivilant
+                        "B06009_002E", #less than hs deg
+                        "B06009_006E", #grad or pro degree
+                        
+                        #means of transport to work
+                        "B08006_003E", #drove alone
+                        "B08006_004E", #carpooled
+                        "B08006_008E", #public transit
+                        "B08006_014E", #bike
+                        "B08006_015E", #walk
+                        "B08006_017E", #work from home
+                        
+                        #citizenship
+                        "B05001_002E", #US citizen born in US
+                        "B05001_006E", #not US citizen
+                        
+                        #employment
+                        "B23025_004E", #employed pop 16 & over
+                        "B23025_005E", #unemployed pop 16 & over
+                        "B08126_002E", #agriculture
+                        "B08126_003E", #construction
+                        "B08126_004E", #manufacturing
+                        "B08126_005E", #wholesale trade
+                        "B08126_006E", #retail
+                        "B08126_007E", #transport, warehouse, utilities
+                        "B08126_008E", #information
+                        "B08126_009E", #finance, insurance
+                        "B08126_010E", #pro, sci, management
+                        "B08126_011E", #education & health care
+                        "B08126_012E", #arts, entertainment, rec & hospitality
+                        "B08126_014E", #public admin
+                        "B08126_015E", #armed forces
+                        "B08126_013E"), #other
+                        
+          year=2019, state=47, county=065, 
+          geometry=TRUE, output="wide") %>%
+  st_transform('ESRI:102271') %>%
+  rename(TotalPop = B25026_001E, 
+         MedHHInc = B19013_001E, 
+         MedRent = B25058_001E,
+         MedHomeVal = B25077_001E,
+         VacHU = B25004_001E,
+         Poverty = B06012_002E,
+         PubSNAP = B19058_002E,
+         OwnerOcc = B25003_002E,
+         RenterOcc = B25003_003E,
+         TotalHU = B25024_001E,
+         MedHUBuilt = B25035_001E,
+         BlackPop = B03002_004E,
+         HispLatPop = B03002_012E,
+         WhitePop = B03002_003E,
+         AsianPop = B03002_006E,
+         NatAmPop = B03002_005E,
+         Bach_deg = B06009_005E,
+         No_HS_Deg = B06009_002E,
+         HS_Grad = B06009_003E,
+         Grad_deg = B06009_006E,
+         Drive_commute = B08006_003E,
+         Carpool_commute = B08006_004E,
+         PubTrans_commute = B08006_008E,
+         Bike_commute = B08006_014E,
+         Walk_commute = B08006_015E,
+         WFA_commute = B08006_017E,
+         US_cit = B05001_002E,
+         NotUS_cit = B05001_006E,
+         EmplPop = B23025_004E,
+         UnemplPop = B23025_005E,
+         Occ_Agri = B08126_002E,
+         Occ_Const = B08126_003E,
+         Occ_Manuf = B08126_004E,
+         Occ_Wholesale = B08126_005E,
+         Occ_Retail = B08126_006E,
+         Occ_Transport = B08126_007E,
+         Occ_Info = B08126_008E,
+         Occ_FinIns = B08126_009E,
+         Occ_Prof_sci_mangr = B08126_010E,
+         Occ_Edu_health = B08126_011E,
+         Occ_Art_Hosp = B08126_012E,
+         Occ_PubAdmin = B08126_014E,
+         Occ_ArmedForce = B08126_015E,
+         Occ_other = B08126_013E)%>%
+  dplyr::select(-NAME, -ends_with("M")) %>% 
+  mutate(PubSNAP_rate = PubSNAP/TotalPop, 
+         RenterOcc_rate = RenterOcc/TotalPop, 
+         WhitePop_rate = WhitePop / TotalPop, 
+         BlackPop_rate = BlackPop / TotalPop,
+         HispLatPop_rate = HispLatPop / TotalPop,
+         Grad_deg_rate = Grad_deg/TotalPop, 
+         PubTrans_commute_ratio = PubTrans_commute/Drive_commute,
+         Citizen_Ratio = NotUS_cit/US_cit) %>% 
+  rename_with(~ str_c(., "_19"),
+              .cols = all_of(acs_vars_names))
+
+Nash_census <- Nash_census12 %>%
+  filter(TotalPop_12 != 0) %>% 
+  st_drop_geometry() %>% 
+  left_join(Nash_census19, by = c("GEOID")) %>% 
+  st_sf() %>% 
+  mutate(chng_MedHHInc = MedHHInc_19 - MedHHInc_12,
+         chng_MedRent = MedRent_19 - MedRent_12,
+         chng_MedHomeVal = MedHomeVal_19 - MedHomeVal_12,
+         chng_PubSNAP_rate = PubSNAP_rate_19 - PubSNAP_rate_12,
+         chng_RenterOcc_rate = RenterOcc_rate_19 - RenterOcc_rate_12,
+         chng_WhitePop_rate = WhitePop_rate_19 - WhitePop_rate_12,
+         chng_BlackPop_rate = BlackPop_rate_19 - BlackPop_rate_12,
+         chng_HispLatPop_rate = HispLatPop_rate_19 - HispLatPop_rate_12,
+         chng_Grad_deg_rate = Grad_deg_rate_19 - Grad_deg_rate_12,
+         chng_PubTrans_commute_ratio = PubTrans_commute_ratio_19 - PubTrans_commute_ratio_12,
+         chng_Citizen_Ratio = Citizen_Ratio_19 - Citizen_Ratio_12,
+         chng_MedHUBuilt = MedHUBuilt_19 - MedHUBuilt_12)
+  
+Chatt_census <- Chatt_census12 %>%
+  filter(TotalPop_12 != 0) %>% 
+  st_drop_geometry() %>% 
+  left_join(Chatt_census19, by = c("GEOID")) %>% 
+  st_sf() %>% 
+  mutate(chng_MedHHInc = MedHHInc_19 - MedHHInc_12,
+         chng_MedRent = MedRent_19 - MedRent_12,
+         chng_MedHomeVal = MedHomeVal_19 - MedHomeVal_12,
+         chng_PubSNAP_rate = PubSNAP_rate_19 - PubSNAP_rate_12,
+         chng_RenterOcc_rate = RenterOcc_rate_19 - RenterOcc_rate_12,
+         chng_WhitePop_rate = WhitePop_rate_19 - WhitePop_rate_12,
+         chng_BlackPop_rate = BlackPop_rate_19 - BlackPop_rate_12,
+         chng_HispLatPop_rate = HispLatPop_rate_19 - HispLatPop_rate_12,
+         chng_Grad_deg_rate = Grad_deg_rate_19 - Grad_deg_rate_12,
+         chng_PubTrans_commute_ratio = PubTrans_commute_ratio_19 - PubTrans_commute_ratio_12,
+         chng_Citizen_Ratio = Citizen_Ratio_19 - Citizen_Ratio_12,
+         chng_MedHUBuilt = MedHUBuilt_19 - MedHUBuilt_12)
+
+options(tigris_use_cache = TRUE)
+```
+
+```{r spatial_vars}
+# within 0.25 miles of a bus stop
+
+nash_bus_stps <- read.csv("Data/WeGoBus_Stops.csv") %>%
+  mutate(lat_long = str_extract(Mapped.Location, "\\(.*?\\)")) %>%
+  mutate(lat_long = str_replace_all(lat_long, "[\\(\\)]", ""))%>%
+  separate(lat_long, into = c("latitude", "longitude"), sep = ",\\s*") %>% 
+  na.omit(Mapped.Location) %>% 
+  st_as_sf(coords = c("longitude", "latitude"), crs = 4269) %>% 
+  st_transform('ESRI:102271')
+
+
+chat_bus_stps <- st_read("Data/CARTA_Stops.geojson") %>% 
+  st_transform(st_crs(nash_bus_stps))
+
+nash_bus_buffer <- st_buffer(nash_bus_stps, 1320) %>% 
+  st_union()
+
+chat_bus_buffer <- st_buffer(chat_bus_stps, 1320) %>% 
+  st_union()
+
+Nash_census <- 
+  rbind(
+    st_centroid(Nash_census)[nash_bus_buffer,] %>%
+      st_drop_geometry() %>%
+      left_join(Nash_census) %>%
+      st_sf() %>%
+      mutate(near_bus = 1),
+    st_centroid(Nash_census)[nash_bus_buffer, op = st_disjoint] %>%
+      st_drop_geometry() %>%
+      left_join(Nash_census) %>%
+      st_sf() %>%
+      mutate(near_bus = 0))
+
+Chatt_census <- 
+  rbind(
+    st_centroid(Chatt_census)[chat_bus_buffer,] %>%
+      st_drop_geometry() %>%
+      left_join(Chatt_census) %>%
+      st_sf() %>%
+      mutate(near_bus = 1),
+    st_centroid(Chatt_census)[chat_bus_buffer, op = st_disjoint] %>%
+      st_drop_geometry() %>%
+      left_join(Chatt_census) %>%
+      st_sf() %>%
+      mutate(near_bus = 0))
+
+# number of public art pieces
+
+nash_pub_art <- read.csv("Data/nash_art_public_space.csv") %>% 
+  filter(!is.na(Latitude) | !is.na(Longitude)) %>% 
+  st_as_sf(coords = c(x = "Longitude", y = "Latitude"), crs = 4269) %>% 
+  st_transform('ESRI:102271')
+
+chat_pub_art <- read.csv("Data/chat_art_public_space.csv") %>% 
+  filter(!is.na(Latitude) | !is.na(Longitude)) %>% 
+  st_as_sf(coords = c(x = "Longitude", y = "Latitude"), crs = 4269) %>% 
+  st_transform('ESRI:102271')
+
+Nash_census <- Nash_census %>% 
+  mutate(n_pub_art = lengths(st_intersects(., nash_pub_art)))
+
+Chatt_census <- Chatt_census %>% 
+  mutate(n_pub_art = lengths(st_intersects(., chat_pub_art)))
+
+# number of crimes
+
+nash_crime <- read.csv("Data/nash_crime.csv") %>% 
+  filter(!grepl("2024|2023|2022|2021|2020", Incident.Occurred))
+
+chat_crime <- read.csv("Data/chat_crime.csv")
+  
+nash_violent_crime_19 <- nash_crime %>% 
+  filter(grepl("2019", Incident.Occurred) &
+           Weapon.Description != "Unarmed" &
+           (!is.na(Latitude) | !is.na(Longitude))) %>%
+  st_as_sf(coords = c(x = "Longitude", y = "Latitude"), crs = 4269) %>% 
+  st_transform('ESRI:102271')
+
+nash_violent_crime_18 <- nash_crime %>% 
+  filter(grepl("2018", Incident.Occurred) &
+           Weapon.Description != "Unarmed" &
+           (!is.na(Latitude) | !is.na(Longitude))) %>%
+  st_as_sf(coords = c(x = "Longitude", y = "Latitude"), crs = 4269) %>% 
+  st_transform('ESRI:102271')
+
+chat_violent_crime_19 <- chat_crime %>% 
+  filter(grepl("2019", Date_Incident) &
+           Incident_Description != "Robbery" & 
+           (!is.na(Latitude) | !is.na(Longitude))) %>%
+  st_as_sf(coords = c(x = "Longitude", y = "Latitude"), crs = 4269) %>% 
+  st_transform('ESRI:102271')
+
+chat_violent_crime_18 <- chat_crime %>% 
+  filter(grepl("2018", Date_Incident) &
+           Incident_Description != "Robbery" & 
+           (!is.na(Latitude) | !is.na(Longitude))) %>%
+  st_as_sf(coords = c(x = "Longitude", y = "Latitude"), crs = 4269) %>% 
+  st_transform('ESRI:102271')
+
+Nash_census <- Nash_census %>% 
+  mutate(n_crime_19 = lengths(st_intersects(., nash_violent_crime_19)),
+         n_crime_18 = lengths(st_intersects(., nash_violent_crime_18)),
+         pct_chng_crime = (n_crime_19 - n_crime_18) / n_crime_18)
+
+Chatt_census <- Chatt_census %>% 
+  mutate(n_crime_19 = lengths(st_intersects(., chat_violent_crime_19)),
+         n_crime_18 = lengths(st_intersects(., chat_violent_crime_18)),
+         pct_chng_crime = (n_crime_19 - n_crime_18) / n_crime_18)
+
+# 311 calls
+
+nash_311 <- read.csv("Data/nash_311.csv")
+
+chat_311 <- read.csv("Data/chat_311.csv",
+                     na.strings = c(""," ","NA"))
+
+nash_311_19 <- nash_311 %>% 
+  filter(grepl("2019", Date...Time.Opened) &
+           (!is.na(Latitude) | !is.na(Longitude))) %>%
+  st_as_sf(coords = c(x = "Longitude", y = "Latitude"), crs = 4269) %>% 
+  st_transform('ESRI:102271')
+
+nash_311_18 <- nash_311 %>% 
+  filter(grepl("2018", Date...Time.Opened) &
+           (!is.na(Latitude) | !is.na(Longitude))) %>%
+  st_as_sf(coords = c(x = "Longitude", y = "Latitude"), crs = 4269) %>% 
+  st_transform('ESRI:102271')
+
+chat_311_19 <- chat_311 %>% 
+  filter(grepl("2019", Created.Date) & !is.na(PublicLocation)) %>%
+  st_as_sf(wkt = "PublicLocation", crs = 4269) %>% 
+  st_transform('ESRI:102271')
+
+chat_311_18 <- chat_311 %>% 
+  filter(grepl("2018", Created.Date) & !is.na(PublicLocation)) %>%
+  st_as_sf(wkt = "PublicLocation", crs = 4269) %>% 
+  st_transform('ESRI:102271')
+
+Nash_census <- Nash_census %>% 
+  mutate(n_311_19 = lengths(st_intersects(., nash_311_19)),
+         n_311_18 = lengths(st_intersects(., nash_311_18)),
+         pct_chng_311 = (n_311_19 - n_311_18) / n_311_18)
+
+Chatt_census <- Chatt_census %>% 
+  mutate(n_311_19 = lengths(st_intersects(., chat_311_19)),
+         n_311_18 = lengths(st_intersects(., chat_311_18)),
+         pct_chng_311 = (n_311_19 - n_311_18) / n_311_18)
+```
+
+### Census Tract Cluster Analysis
+
+We use a k-means clustering technique to select for four distinct types of census tracts in our study cities. First, we collected ACS 5-year estimates for Chattanooga and Nashville using the Tidycensus package in R. We use seven variables (see table below) to measure both 2019 metrics in census tracts and the change in those same tracts between 2012 and 2019. 
+
+
+
+```{r kmeans table, results = 'markup'}
+
+variables <- c("Median Household Income", "Median Home Value", "Renter Occupied Rate", "White Population Rate", "Black Population Rate", "Hispanic / Latino Population Rate", "Graduate Degree Rate", "SNAP Recipient Rate")
+
+kmeans_vars <- as.data.frame(variables)
+
+
+kmeans_vars %>% 
+  gt() %>% 
+  tab_header(title = "K-means clustering variables") %>% 
+  gt_theme_nytimes()
+
+
+```
+
+
+```{r assigning Nashville clusters}
+# set seed and cluster number
+
+set.seed(123)
+
+k <- 4
+
+#### Chattanooga
+
+#Scaling the data (code from here: https://stackoverflow.com/questions/15215457/standardize-data-columns-in-r)
+
+
+Chatt_scaled <- Chatt_census %>%
+  select(c(GEOID, MedHHInc_19, MedHomeVal_19, RenterOcc_rate_19, 
+           chng_MedHHInc, chng_MedHomeVal, chng_RenterOcc_rate,
+           WhitePop_rate_19, BlackPop_rate_19, HispLatPop_rate_19,
+           chng_WhitePop_rate, chng_BlackPop_rate, chng_HispLatPop_rate,
+           Grad_deg_rate_19, chng_Grad_deg_rate,
+           PubSNAP_rate_19, chng_PubSNAP_rate)) %>% 
+  st_drop_geometry() %>% 
+  mutate_at(c(2:17), ~(scale(.) %>% 
+                         as.vector)) %>% 
+  
+  na.omit()
+
+km.out_Chatt <- kmeans(Chatt_scaled, centers = k, nstart = 20)
+
+##Assigning Cluster IDs
+
+Chatt_scaled$cluster_id <- factor(km.out_Chatt$cluster)
+
+Chatt_census <- Chatt_census %>% 
+  left_join(Chatt_scaled %>% 
+              select(GEOID, cluster_id),
+            by = c("GEOID")) %>%  
+  mutate(chng_cluster = case_when(cluster_id == "1" ~ 1,
+                                  TRUE ~ 0))
+
+#### Nashville 
+
+Nash_scaled <- Nash_census %>%
+  select(c(GEOID, MedHHInc_19, MedHomeVal_19, RenterOcc_rate_19, 
+           chng_MedHHInc, chng_MedHomeVal, chng_RenterOcc_rate,
+           WhitePop_rate_19, BlackPop_rate_19, HispLatPop_rate_19,
+           chng_WhitePop_rate, chng_BlackPop_rate, chng_HispLatPop_rate,
+           Grad_deg_rate_19, chng_Grad_deg_rate,
+           PubSNAP_rate_19, chng_PubSNAP_rate)) %>% 
+  st_drop_geometry() %>% 
+  mutate_at(c(2:17), ~(scale(.) %>% 
+                         as.vector)) %>% 
+  
+  na.omit()
+
+km.out_Nash <- kmeans(Nash_scaled, centers = k, nstart = 20)
+
+##Assigning Cluster IDs
+
+Nash_scaled$cluster_id <- factor(km.out_Nash$cluster)
+
+Nash_census <- Nash_census %>% 
+  left_join(Nash_scaled %>% 
+              select(GEOID, cluster_id),
+            by = c("GEOID")) %>% 
+  mutate(chng_cluster = case_when(cluster_id == "2" ~ 1,
+                                  TRUE ~ 0))
+
+
+
+```
+
+
+```{r Nash_cluster_summary, results = 'markup'}
+Nash_clusters <- Nash_census %>% 
+  select(MedHHInc_19, MedHomeVal_19, RenterOcc_rate_19, 
+           chng_MedHHInc, chng_MedHomeVal, chng_RenterOcc_rate,
+           WhitePop_rate_19, BlackPop_rate_19, HispLatPop_rate_19,
+           chng_WhitePop_rate, chng_BlackPop_rate, chng_HispLatPop_rate,
+           Grad_deg_rate_19, chng_Grad_deg_rate,
+           PubSNAP_rate_19, chng_PubSNAP_rate, cluster_id) %>% 
+  st_drop_geometry() %>% 
+  group_by(cluster_id) %>% 
+  summarise_all("mean") %>% 
+  na.omit()
+
+
+## Economic profile table
+
+nash_clusters_econ <- Nash_clusters %>% 
+  select(c(1:7, 14:17)) %>% 
+    mutate(cluster_id = case_when(
+    cluster_id == "1" ~ "Potentially Gentrifying",
+    cluster_id == "2" ~ "Rapidly Gentrifying",
+    cluster_id == "3" ~ "Resisting Gentrification",
+    cluster_id == "4" ~ "Increasingly Affluent",
+    TRUE ~ "Other"
+  ))
+
+nash_clusters_econ <- nash_clusters_econ[,c(1,2,5,3,6,4,7,8:11)]
+
+
+nash_clusters_econ %>% 
+  gt() %>% 
+  fmt_percent(columns = c(6:11), 
+              decimals = 1) %>% 
+  fmt_currency(columns = c(2:5), 
+               decimals = 0) %>% 
+  cols_label(cluster_id = "Cluster",
+             MedHHInc_19 = "Median HH Income",
+             MedHomeVal_19 = "Median Home Value",
+             RenterOcc_rate_19 = "% Renters",
+             chng_MedHHInc = "Change Median Income",
+             chng_MedHomeVal = "Change Home Values",
+             chng_RenterOcc_rate = "Change % Renters",
+             Grad_deg_rate_19 = "% Grad Degree", 
+             chng_Grad_deg_rate = "Change % Grad Degree",
+             PubSNAP_rate_19 = "% Recieiving SNAP", 
+             chng_PubSNAP_rate = "Change % Recieiving SNAP") %>%
+    tab_header(title = "Economic Profile of Clusters for Nashville",
+             subtitle = "2019 and change sicne 2012 (Source: 2012 & 2019 ACS 5-year Estimate) ") %>% 
+  cols_width(2:11 ~ px(200)) %>%
+  gt_theme_nytimes()
+
+##Demographic profile table
+
+nash_clusters_demo <- Nash_clusters %>% 
+  select(c(1,8:13))%>% 
+    mutate(cluster_id = case_when(
+    cluster_id == "1" ~ "Potentially Gentrifying",
+    cluster_id == "2" ~ "Rapidly Gentrifying",
+    cluster_id == "3" ~ "Resisting Gentrification",
+    cluster_id == "4" ~ "Increasingly Affluent",
+    TRUE ~ "Other"
+  ))
+
+nash_clusters_demo <- nash_clusters_demo[,c(1,2,5,3,6,4,7)]
+
+nash_clusters_demo %>% 
+  gt() %>% 
+  fmt_percent(columns = c(2:7), 
+              decimals =1) %>% 
+  cols_label(cluster_id = "Cluster",
+             WhitePop_rate_19 = "% White",
+             BlackPop_rate_19 = "% Black", 
+             HispLatPop_rate_19 = "% Hispanic or Latino",
+             chng_WhitePop_rate = "Change % White", 
+             chng_BlackPop_rate = "Change % Black", 
+             chng_HispLatPop_rate = "Change % Hispanic or Latino") %>%
+  tab_header(title = "Demographic Profile of Clusters for Nashville",
+             subtitle = "2019 and change since 2012 (Source: 2012 & 2019 ACS 5-year Estimate) ") %>% 
+    cols_width(2:7 ~ px(200)) %>%
+  gt_theme_nytimes()
+
+```
+```{r Chatt_cluster_summary, results = 'markup'}
+
+Chatt_clusters <- Chatt_census %>% 
+  select(MedHHInc_19, MedHomeVal_19, RenterOcc_rate_19, 
+           chng_MedHHInc, chng_MedHomeVal, chng_RenterOcc_rate,
+           WhitePop_rate_19, BlackPop_rate_19, HispLatPop_rate_19,
+           chng_WhitePop_rate, chng_BlackPop_rate, chng_HispLatPop_rate,
+           Grad_deg_rate_19, chng_Grad_deg_rate,
+           PubSNAP_rate_19, chng_PubSNAP_rate, cluster_id) %>% 
+  st_drop_geometry() %>% 
+  group_by(cluster_id) %>% 
+  summarise_all("mean") %>% 
+  na.omit() 
+
+## Economic profile table
+
+chatt_clusters_econ <- Chatt_clusters %>% 
+  select(c(1:7, 14:17))%>% 
+    mutate(cluster_id = case_when(
+    cluster_id == "1" ~ "Rapidly Gentrifying",
+    cluster_id == "2" ~ "Potentially Gentrifying",
+    cluster_id == "3" ~ "Increasingly Affluent",
+    cluster_id == "4" ~ "Resisting Gentrification",
+    TRUE ~ "Other"
+  ))
+chatt_clusters_econ <- chatt_clusters_econ[c(2,1,4,3),c(1,2,5,3,6,4,7,8:11)]
+
+chatt_clusters_econ %>% 
+  gt() %>% 
+  fmt_percent(columns = c(6:11), 
+              decimals = 1) %>% 
+  fmt_currency(columns = c(2:5), 
+               decimals = 0) %>% 
+  cols_label(cluster_id = "Cluster",
+             MedHHInc_19 = "Median HH Income",
+             MedHomeVal_19 = "Median Home Value",
+             RenterOcc_rate_19 = "% Renters",
+             chng_MedHHInc = "Change Median Income",
+             chng_MedHomeVal = "Change Home Values",
+             chng_RenterOcc_rate = "Change % Renters",
+             Grad_deg_rate_19 = "% Grad Degree", 
+             chng_Grad_deg_rate = "Change % Grad Degree",
+             PubSNAP_rate_19 = "% Recieiving SNAP", 
+             chng_PubSNAP_rate = "Change % Recieiving SNAP") %>%
+    tab_header(title = "Economic Profile of Clusters for Chattanooga",
+             subtitle = "2019 and change since 2012 (Source: 2012 & 2019 ACS 5-year Estimate) ") %>% 
+  cols_width(2:11 ~ px(200)) %>%
+  gt_theme_nytimes()
+
+##Demographic profile table
+
+chatt_clusters_demo <- Chatt_clusters %>% 
+  select(c(1,8:13))%>% 
+    mutate(cluster_id = case_when(
+    cluster_id == "1" ~ "Rapidly Gentrifying",
+    cluster_id == "2" ~ "Potentially Gentrifying",
+    cluster_id == "3" ~ "Increasingly Affluent",
+    cluster_id == "4" ~ "Resisting Gentrification",
+    TRUE ~ "Other"
+  ))
+
+chatt_clusters_demo <- chatt_clusters_demo[c(2,1,4,3),c(1,2,5,3,6,4,7)]
+
+chatt_clusters_demo %>% 
+  gt() %>% 
+  fmt_percent(columns = c(2:7), 
+              decimals =1) %>% 
+  cols_label(cluster_id = "Cluster",
+             WhitePop_rate_19 = "% White",
+             BlackPop_rate_19 = "% Black", 
+             HispLatPop_rate_19 = "% Hispanic or Latino",
+             chng_WhitePop_rate = "Change % White", 
+             chng_BlackPop_rate = "Change % Black", 
+             chng_HispLatPop_rate = "Change % Hispanic or Latino") %>%
+  tab_header(title = "Demographic Profile of Clusters for Chattanooga",
+             subtitle = "2019 and change since 2012 (Source: 2012 & 2019 ACS 5-year Estimate) ") %>% 
+    cols_width(2:7 ~ px(200)) %>%
+  gt_theme_nytimes()
+
+
+
+```
+
+# Exploring collinearity
+
+The plot below shows how all of our selected census and spatial variables interact with one another. While some have high positive correlation, shown in red (median household income and rate of graduate degrees, for example), we pay particular attention to those with negative correlation, shown in blue, as they may be important indicators of neighborhood change or gentrification. Variables with the strongest negative correlation include percent black with percent white, indicating the way neighborhoods are racially segregated, and change in percent black with percent white, indicating the way neighborhood change often occurs along a Black/White racial binary. Negative correlations for percent Hispanic / Latino are similar, although less intense than for Black demographics. 
+
+```{r, results='markup',fig.width=7, fig.height=6}
+vars_corr <- Nash_census %>%
+  st_drop_geometry() %>% 
+  select(MedHHInc_19, MedHomeVal_19, RenterOcc_rate_19, 
+           chng_MedHHInc, chng_MedHomeVal, chng_RenterOcc_rate,
+           WhitePop_rate_19, BlackPop_rate_19, HispLatPop_rate_19,
+           chng_WhitePop_rate, chng_BlackPop_rate, chng_HispLatPop_rate,
+           Grad_deg_rate_19, chng_Grad_deg_rate,
+           PubSNAP_rate_19, chng_PubSNAP_rate,
+           near_bus, n_pub_art, pct_chng_crime, pct_chng_311) %>% 
+  na.omit()
+
+vars_corr <- round(cor(vars_corr), 2)
+
+p.mat <- corr.test(vars_corr)$p
+
+corr_axis_labs <- c(MedHHInc_19 = "Median HH Income",
+             MedHomeVal_19 = "Median Home Value",
+             RenterOcc_rate_19 = "% Renters",
+             chng_MedHHInc = "Change Median Income",
+             chng_MedHomeVal = "Change Home Values",
+             chng_RenterOcc_rate = "Change % Renters",
+             WhitePop_rate_19 = "% White",
+             BlackPop_rate_19 = "% Black", 
+             HispLatPop_rate_19 = "% Hispanic or Latino",
+             chng_WhitePop_rate = "Change % White", 
+             chng_BlackPop_rate = "Change % Black", 
+             chng_HispLatPop_rate = "Change % Hispanic or Latino",
+             Grad_deg_rate_19 = "% Grad Degree", 
+             chng_Grad_deg_rate = "Change % Grad Degree",
+             PubSNAP_rate_19 = "% Recieiving SNAP", 
+             chng_PubSNAP_rate = "Change % Recieiving SNAP",
+             near_bus = "Within .25 mi of bus",
+             n_pub_art = "Public art pieces",
+             pct_chng_crime = "Annual % Change Crime",
+             pct_chng_311 = "Annual % Change 311 Calls")
+
+ggcorrplot(vars_corr, type = "lower", hc.order = TRUE, p.mat = p.mat, insig = "blank") +
+  scale_x_discrete(labels = corr_axis_labs) +
+  scale_y_discrete(labels = corr_axis_labs) +
+  labs(title = "Correlation Matrix for Potential Predictors\nof Neighborhood Change",
+       subtitle = "Nashville, 2012 to 2019",
+       caption = "Source: ACS 5-year, Open Data Nashville")+
+  theme(plot.title = element_text(face = "bold"),
+        axis.text.x = element_text(size = 8),
+        axis.text.y = element_text(size = 8),
+        plot.caption = element_text(hjust = 0),
+        panel.background = element_rect(fill = "#f0f0f0", color = "#ffffff", linewidth = 2))
+
+```
+
+# Mapping variables of interest
+
+## Cluster IDs
+Our model identifies distinct clusters of neighborhoods characterized by unique demographic and socioeconomic profiles. As seen below, these clusters are created in relativity to their propensity to gentrification. Increasingly Affluent clusters are unlikely to be at risk of future gentrification as they are already home to wealthy, predominantly white populations. Potentially Gentrifying clusters are areas that show signs of neighborhood change that could lead to future gentrification. These are typically neighborhoods that are observed to have moderately increasing home values and household incomes and a changing demographic makeup. Rapidly Gentrifying clusters are categorized by rapid increases in median home values, household incomes, advanced educational degrees, and white populations, coupled with decreases in Black and Hispanic or Latino populations as well as populations receiving SNAP benefits. Clusters identified as resisting gentrification are noted to be relatively stable in terms of household incomes and home values over time, along with the high-level racial and ethnic makeups of the population. By assigning census tracts to trend-specific clusters, we can create a binomial variable model to anticipate changes in neighborhoods of concern.
+
+```{r, results='markup'}
+
+Nash_census <- Nash_census %>% 
+    mutate(cluster_name = case_when(
+    cluster_id == "1" ~ "Potentially Gentrifying",
+    cluster_id == "2" ~ "Rapidly Gentrifying",
+    cluster_id == "3" ~ "Resisting Gentrification",
+    cluster_id == "4" ~ "Increasingly Affluent",
+    TRUE ~ "Other"
+  ))
+
+Chatt_census <- Chatt_census %>% 
+    mutate(cluster_name = case_when(
+    cluster_id == "1" ~ "Rapidly Gentrifying",
+    cluster_id == "2" ~ "Potentially Gentrifying",
+    cluster_id == "3" ~ "Increasingly Affluent",
+    cluster_id == "4" ~ "Resisting Gentrification",
+    TRUE ~ "Other"
+  ))
+
+Nash_cluster_map <- ggplot() +
+  geom_sf(data = nash_county,
+          fill = "#f7f7f7",
+          color = NA) +
+  geom_sf(data = subset(Nash_census, cluster_name != "Other"),
+          aes(fill = cluster_name),
+          color = "#d9d9d9") +
+  scale_fill_brewer(name = "Cluster",
+                    type = "qual",
+                    palette = "Set3",
+                    na.value = "#f7f7f7") +
+  geom_sf(data = nash_county,
+          fill = "transparent",
+          color = "#525252",
+          lwd = 0.3,
+          lty = "longdash") +
+  theme_void() +
+  labs(title = "Nashville (Davidson County)") +
+  theme(legend.position = "bottom",
+        legend.direction = "vertical")
+
+Chatt_cluster_map <- ggplot() +
+  geom_sf(data = chat_county,
+          fill = "#f7f7f7",
+          color = NA) +
+  geom_sf(data = subset(Chatt_census, cluster_name != "Other"),
+          aes(fill = cluster_name),
+          color = "#d9d9d9") +
+  scale_fill_brewer(name = "Cluster",
+                    type = "qual",
+                    palette = "Set3",
+                    na.value = "#f7f7f7") +
+  geom_sf(data = chat_county,
+          fill = "transparent",
+          color = "#525252",
+          lwd = 0.3,
+          lty = "longdash") +
+  theme_void() +
+  labs(title = "Chattanooga (Hamilton County)") +
+  theme(legend.position = "bottom",
+        legend.direction = "vertical")
+
+grid.arrange(Nash_cluster_map, Chatt_cluster_map, ncol = 2)
+```
+
+## Spatial Analysis
+In addition to demographic and socioeconomic variables of interest in considering indicators of gentrification, our model includes spatial factors. The spatial changes in these variables coincide with socioeconomic and demographic changes observed in the defined clusters.
+
+### Crime
+Instances of violent crime may also correspond to a neighborhood's potential gentrification. Neighborhoods in the Rapidly Gentrifying cluster show a decrease in violent crime over time for both Nashville and Chattanooga. These are indicators that more resources may have become available to residents, ultimately working to decrease occurrences of violent crime. Areas in the Potentially Gentrifying clusters show little change in crime rates, with a slight downward trend. This suggests these areas are slowly becoming safer. Neighborhoods clustered as Resisting Gentrification are generally demonstrating decreased crime rates over time. Communities with strong social cohesion often experiences fewer instances of crime.
+
+It is important to note that areas with the highest change in crime appear to fall within clusters designated as Increasingly Affluent. While this suggests there is a higher number of crime instances, it may also be an indication of a greater likelihood of residents reporting crime. Many populations have valid reasons for avoiding contact with law enforcement, possibly leading to a lower reporting rate. White, affluent populations likely feel safer reporting crimes to police, potentially explaining these trends.
+
+```{r, results='markup'}
+Nash_crime_map <- ggplot() +
+  geom_sf(data = nash_county,
+          fill = "#f7f7f7",
+          color = NA) +
+  geom_sf(data = Nash_census,
+          aes(fill = pct_chng_crime),
+          color = "#d9d9d9") +
+  scale_fill_distiller(name = "Annual % Change in Crime",
+                       type = "div",
+                       labels = scales::label_percent(),
+                       palette = "RdBu",
+                       direction = -1,
+                       na.value = "#f7f7f7") +
+  geom_sf(data = nash_county,
+          fill = "transparent",
+          color = "#525252",
+          lwd = 0.3,
+          lty = "longdash") +
+  labs(title = "Nashville (Davidson County)") +
+  annotation_scale(location = "bl",
+                   unit_category = "imperial") +
+  theme_void() +
+  theme(legend.position = "bottom")
+
+Chatt_crime_map <- ggplot() +
+  geom_sf(data = chat_county,
+          fill = "#f7f7f7",
+          color = NA) +
+  geom_sf(data = Chatt_census,
+          aes(fill = pct_chng_crime),
+          color = "#d9d9d9") +
+  scale_fill_distiller(name = "Annual % Change in Crime",
+                       type = "div",
+                       labels = scales::label_percent(),
+                       palette = "RdBu",
+                       direction = -1,
+                       na.value = "#f7f7f7") +
+  geom_sf(data = chat_county,
+          fill = "transparent",
+          color = "#525252",
+          lwd = 0.3,
+          lty = "longdash") +
+  labs(title = "Chattanooga (Hamilton County)") +
+  theme_void() +
+  theme(legend.position = "bottom",
+        legend.text = element_text(angle = 45, hjust = 1))
+
+grid.arrange(Nash_crime_map, Chatt_crime_map, ncol = 2)
+```
+
+### 311 Calls
+Non-emergency municipal concerns reported to 311 lines may suggest the status of a neighborhood’s infrastructure. Over time, fewer 311 calls might demonstrate improved local infrastructure, supporting theories of gentrification. 
+
+```{r, results='markup'}
+Nash_311_map <- ggplot() +
+  geom_sf(data = nash_county,
+          fill = "#f7f7f7",
+          color = NA) +
+  geom_sf(data = Nash_census,
+          aes(fill = pct_chng_311),
+          color = "#d9d9d9") +
+  scale_fill_distiller(name = "Annual % Change in 311 Calls",
+                       type = "seq",
+                       labels = scales::label_percent(),
+                       palette = "Greens",
+                       direction = 1,
+                       na.value = "#f7f7f7") +
+  geom_sf(data = nash_county,
+          fill = "transparent",
+          color = "#525252",
+          lwd = 0.3,
+          lty = "longdash") +
+  labs(title = "Nashville (Davidson County)") +
+  annotation_scale(location = "bl",
+                   unit_category = "imperial") +
+  theme_void() +
+  theme(legend.position = "bottom")
+
+Chat_311_map <- ggplot() +
+  geom_sf(data = chat_county,
+          fill = "#f7f7f7",
+          color = NA) +
+  geom_sf(data = Chatt_census,
+          aes(fill = pct_chng_311),
+          color = "#d9d9d9") +
+  scale_fill_distiller(name = "Annual % Change in 311 Calls",
+                       type = "div",
+                       labels = scales::label_percent(),
+                       palette = "PRGn",
+                       direction = 1,
+                       na.value = "#f7f7f7") +
+  geom_sf(data = chat_county,
+          fill = "transparent",
+          color = "#525252",
+          lwd = 0.3,
+          lty = "longdash") +
+  labs(title = "Chattanooga (Hamilton County)") +
+  theme_void() +
+  theme(legend.position = "bottom")
+
+grid.arrange(Nash_311_map, Chat_311_map, ncol = 2)
+```
+
+### Access to transit
+Access to transit is analyzed by whether there is a bus station within a quarter mile of a census tract’s centroid. This can tell us if there are existing transit services and infrastructure supporting various modes of transportation. Datasets for transit stops come from the Chattanooga Area Regional Transportation Authority (CARTA) and Nashville’s WeGo Public Transit.
+
+```{r, results='markup'}
+Nash_census <- Nash_census %>% 
+  mutate(near_bus_yn = case_when(near_bus == 1 ~ "Yes",
+                                 near_bus == 0 ~ "No"))
+
+Nash_bus_map <- ggplot() +
+  geom_sf(data = nash_county,
+          fill = "#f7f7f7",
+          color = NA) +
+  geom_sf(data = Nash_census,
+          aes(fill = near_bus_yn),
+          color = "#d9d9d9") +
+  scale_fill_manual(name = "Within 0.25 miles of bus stop",
+                    values = c("#fed976", "#4292c6"),
+                    labels = c("No", "Yes"),
+                    na.value = "#f7f7f7") +
+  geom_sf(data = nash_county,
+          fill = "transparent",
+          color = "#525252",
+          lwd = 0.3,
+          lty = "longdash") +
+  labs(title = "Nashville (Davidson County)") +
+  annotation_scale(location = "bl",
+                   unit_category = "imperial") +
+  theme_void() +
+  theme(legend.position = "bottom")
+
+Chatt_census <- Chatt_census %>% 
+  mutate(near_bus_yn = case_when(near_bus == 1 ~ "Yes",
+                                 near_bus == 0 ~ "No"))
+
+Chat_bus_map <- ggplot() +
+  geom_sf(data = chat_county,
+          fill = "#f7f7f7",
+          color = NA) +
+  geom_sf(data = Chatt_census,
+          aes(fill = near_bus_yn),
+          color = "#d9d9d9") +
+  scale_fill_manual(name = "Within 0.25 miles of bus stop",
+                    values = c("#fed976", "#4292c6"),
+                    labels = c("No", "Yes"),
+                    na.value = "#f7f7f7") +
+  geom_sf(data = chat_county,
+          fill = "transparent",
+          color = "#525252",
+          lwd = 0.3,
+          lty = "longdash") +
+  labs(title = "Chattanooga (Hamilton County)") +
+  theme_void() +
+  theme(legend.position = "bottom")
+
+grid.arrange(Nash_bus_map, Chat_bus_map, ncol = 2)
+```
+
+
+# Logit Model Creation
+We created four binomial logistic regression models using Nashville data to predict the change in clusters based on different sets of independent variables. Combinations of various demographic, socioeconomic, and spatial factors are used to assess the best model. 
+
+```{r}
+
+nash_change_logit <- glm(chng_cluster ~ MedHHInc_12+MedRent_12+ MedHUBuilt_12+ PubSNAP_12+ RenterOcc_12 + WhitePop_12 + BlackPop_rate_12 + HispLatPop_rate_12+  Grad_deg_rate_12 + PubTrans_commute_12 + Citizen_Ratio_12,
+                  family="binomial" (link="logit"), Nash_census)
+
+summary(nash_change_logit)
+
+nash_change_logit2 <- glm(chng_cluster ~ near_bus + n_crime_18 + n_pub_art,
+                  family="binomial" (link="logit"), Nash_census)
+
+summary(nash_change_logit2)
+
+nash_change_logit3 <- glm(chng_cluster ~ MedHHInc_12+ MedHUBuilt_12+ RenterOcc_12 + BlackPop_rate_12  + PubTrans_commute_12 + Citizen_Ratio_12 + near_bus + n_crime_18,
+                  family="binomial" (link="logit"), Nash_census)
+
+summary(nash_change_logit3)
+
+nash_change_logit4 <- glm(chng_cluster ~ MedHHInc_12 + BlackPop_rate_12 + HispLatPop_12 + Grad_deg_rate_12  ,
+                  family="binomial" (link="logit"), Nash_census)
+
+summary(nash_change_logit4)
+
+
+```
+
+# Model Testing
+
+## Cross Validation with Chattanooga
+
+### Confusion Matrices
+Our model has a high frequency of predicting true negative values, but a moderate frequency of predicting false negatives. Evaluation shows a recall rate of 32%, suggesting it is low in sensitivity and therefore not good for predicting true positives. The specificity rate is 95%, demonstrating high accuracy in predicting true negative rates. The rate of accuracy is 88%, supporting that this model is highly likely to make accurate predictions. The model’s precision is 50%, which is relatively low. This means only half of the neighborhoods predicted to undergo gentrification will be accurately predicted. Given this, the model is likely to over-predict for neighborhoods to not be at risk of gentrification. 
+
+```{r confusion matrix, results = "markup"}
+Nash_census <- Nash_census %>% 
+  mutate(outcome = as.factor(chng_cluster),
+         probs = predict(nash_change_logit, Nash_census, type= "response"),
+         pred_outcome = as.factor(case_when(probs >= 0.5 ~ 1,
+                                            probs < 0.5 ~ 0)))
+
+cm_nash <- confusionMatrix(Nash_census$pred_outcome, Nash_census$outcome,
+                      positive = "1")
+
+cm_table_nash <- cm_nash$table
+cm_df_nash <- as.data.frame(cm_table_nash)
+
+rownames(cm_df_nash) <- c("True Negative", "False Positive", 
+                     "False Negative", "True Positive")
+
+gt(cm_df_nash %>% 
+     rownames_to_column()) %>% 
+  fmt_number(columns = Freq, decimals = 0) %>% 
+  tab_header(title = md("**Confusion Matrix** *for Nashville*")) %>%
+  opt_align_table_header(align = "left") %>%
+  cols_label(Freq = "Frequency")
+```
+
+The model is tested by cross-validating with Chattanooga data. Similar to the training data, the testing data results show a high frequency of predicting true negatives, a moderate frequency of predicting false negatives, and a low frequency of predicting false positives. It has no instances of predicting true positives, which suggests the model is over-fit to Nashville data. However, it shows an accuracy rate of 85% and a specificity rate of 97%.
+
+```{r chatt matrix, results='markup'}
+Chatt_census <- Chatt_census %>% 
+  mutate(outcome = as.factor(chng_cluster),
+         probs = predict(nash_change_logit4, Chatt_census, type= "response"),
+         pred_outcome = as.factor(case_when(probs >= 0.5 ~ 1,
+                                            probs < 0.5 ~ 0)))
+
+cm_chatt <- confusionMatrix(Chatt_census$pred_outcome, Chatt_census$outcome,
+                      positive = "1")
+
+cm_table_chatt <- cm_chatt$table
+cm_df_chatt <- as.data.frame(cm_table_chatt)
+
+rownames(cm_df_chatt) <- c("True Negative", "False Positive", 
+                     "False Negative", "True Positive")
+
+gt(cm_df_chatt %>% 
+     rownames_to_column()) %>% 
+  fmt_number(columns = Freq, decimals = 0) %>% 
+  tab_header(title = md("**Confusion Matrix** *for Chattanooga*")) %>%
+  opt_align_table_header(align = "left") %>%
+  cols_label(Freq = "Frequency")
+```
+
+### ROC Curves
+The trade-offs between specificity and sensitivity can be examined in the ROC Curves depicted below. For both cities, the ROC Curve shows high sensitivity and specificity greater than random chance, as shown in the space between the curve and the diagonal line. The model’s trade-off between sensitivity and specificity suggests that it can effectively identify neighborhoods at risk of gentrification. While it is over-fitted to Nashville neighborhoods, its use can still benefit the allocation of time and resources to mitigating gentrification.
+
+```{r}
+
+testProbs_chatt <- data.frame(Outcome = as.factor(Chatt_census$chng_cluster),
+                        Probs = predict(nash_change_logit4, Chatt_census, type= "response"))
+
+
+testProbs_nash <- data.frame(Outcome = as.factor(Nash_census$chng_cluster),
+                        Probs = predict(nash_change_logit4, Nash_census, type= "response"))
+
+
+roc_chatt <- ggplot(testProbs_chatt, aes(d = as.numeric(Outcome), m = Probs)) +
+  geom_roc(n.cuts = 50, labels = FALSE, colour = "#1f78b4") +
+  style_roc(theme = theme_grey) +
+  geom_abline(slope = 1, intercept = 0, size = 1.5, color = 'grey') +
+  labs(title = "ROC Curve: Chattanooga Model") +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold", margin = margin(b = 6)))
+
+roc_nash <- ggplot(testProbs_nash, aes(d = as.numeric(Outcome), m = Probs)) +
+  geom_roc(n.cuts = 50, labels = FALSE, colour = "#1f78b4") +
+  style_roc(theme = theme_grey) +
+  geom_abline(slope = 1, intercept = 0, size = 1.5, color = 'grey') +
+  labs(title = "ROC Curve: Nashville Model") +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold", margin = margin(b = 6)))
+
+
+ggarrange(roc_nash, roc_chatt)
+
+```
+
+# Conclusion
+Based on the insights gleaned from our model’s analysis of neighborhood gentrification risk, we recommend a multifaceted approach to planning and policy-making. We recommend interventions be first focused in neighborhoods identified as rapidly gentrifying or potentially gentrifying, focusing on preserving affordability and inclusive development. This may include promoting affordable housing initiatives, rent stabilization programs, or community land trusts. Incentivizing mixed-income housing developments with subsidies and credits can also help to retain current residents and discourage future displacement. Fostering community engagement and collaborating with local stakeholders should be at the forefront of gentrification-mitigation efforts. This model indicates which neighborhoods are at risk of gentrification, but the categorical nature prevents it from specifying characteristic differences between cities. Understanding the complexity of a city’s population and economy is integral to successful intervention.
+
+
