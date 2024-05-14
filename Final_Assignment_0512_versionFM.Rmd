@@ -1,6 +1,6 @@
 ---
-title: "PPA Final: Predicting grentrification in Tennessee"
-author: "Frances Murray, Bailey Bradford, Jonathan Zisk"
+title: "Predicting gentrification in Tennessee cities"
+author: "PPA Final: Frances Murray, Bailey Bradford, Jonathan Zisk"
 date: "2024-04-26"
 output: 
   html_document:
@@ -41,7 +41,7 @@ library(gridExtra)
 library(ggpubr)
 ```
 
-### Defining gentrification
+### Defining gentrification and neighborhood change
 
 Gentrification means many things to many people. This report does not settle any of those debates. However, this report does rely on often-cited indicators of gentrification to get at the problem. In general, we consider gentrification to the displacement of poor residents and residents of color from neighborhoods by the arrival and development activities associated with whiter, wealthier residents.
 
